@@ -1,0 +1,75 @@
+[workspace]
+members = [".", "cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lucifer1004/parcopy"
+
+[workspace.dependencies]
+# Internal crates
+parcopy = { version = "0.1.0", path = "." }
+
+# Shared dependencies
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.18"
+anyhow = "1"
+
+[package]
+name = "parcopy"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Parallel, atomic, and safe file/directory copying for Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lucifer1004/parcopy"
+keywords = ["copy", "parallel", "atomic", "filesystem", "nfs"]
+categories = ["filesystem", "concurrency"]
+readme = "README.md"
+
+[dependencies]
+# Core dependencies (always required)
+rayon = "1"
+tempfile = "3"
+thiserror = "2"
+filetime = "0.2"
+
+# Optional dependencies (cross-platform)
+indicatif = { version = "0.18", optional = true }
+tracing = { version = "0.1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+reflink-copy = { version = "0.1", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+reflink-copy = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+
+# Enable progress bar support with indicatif
+progress = ["dep:indicatif"]
+
+# Enable structured logging with tracing
+tracing = ["dep:tracing"]
+
+# Enable serde serialization for CopyOptions
+serde = ["dep:serde"]
+
+# Enable reflink/CoW support for instant copies on supported filesystems
+reflink = ["dep:reflink-copy"]
+
+# Enable all optional features
+full = ["progress", "tracing", "serde", "reflink"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

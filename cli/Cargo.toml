@@ -1,0 +1,20 @@
+[package]
+name = "parcopy-cli"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.80"
+license.workspace = true
+repository.workspace = true
+description = "Fast parallel file copy command (pcp)"
+keywords = ["copy", "parallel", "cli", "cp"]
+categories = ["command-line-utilities", "filesystem"]
+
+[[bin]]
+name = "pcp"
+path = "src/main.rs"
+
+[dependencies]
+parcopy = { workspace = true, features = ["progress", "reflink"] }
+clap.workspace = true
+indicatif.workspace = true
+anyhow.workspace = true
