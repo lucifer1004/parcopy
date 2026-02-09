@@ -1,0 +1,15 @@
+# cargo-release configuration
+# See: https://github.com/crate-ci/cargo-release/blob/master/docs/reference.md
+
+# Use shared version from workspace.package for all crates
+shared-version = true
+
+# Release all workspace members
+release = true
+
+# Also update the parcopy dependency version in workspace.dependencies
+[[pre-release-replacements]]
+file = "Cargo.toml"
+search = 'parcopy = \{ version = "[^"]*"'
+replace = 'parcopy = { version = "{{version}}"'
+min = 0
