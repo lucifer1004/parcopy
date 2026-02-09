@@ -15,6 +15,7 @@
 //! - **Incremental copy**: Only copy files newer than destination (`UpdateNewer`)
 //! - **Reflink support**: Instant copy-on-write on btrfs/XFS/APFS
 //! - **Security hardened**: Detects and optionally blocks escaping symlinks
+//! - **Windows attribute preserving**: Copies hidden, system, archive attributes on Windows
 //!
 //! ## Quick Start with Builder API
 //!
@@ -120,6 +121,9 @@ mod options;
 
 #[cfg(feature = "progress")]
 mod progress;
+
+#[cfg(windows)]
+mod win_attrs;
 
 pub use builder::CopyBuilder;
 pub use copy::{copy_dir, copy_file, CopyStats};

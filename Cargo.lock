@@ -294,6 +294,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
+ "windows",
 ]
 
 [[package]]

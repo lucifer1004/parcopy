@@ -504,6 +504,12 @@ pub(crate) fn copy_file_internal(
         let _ = preserve_timestamps(&src_meta, dst);
     }
 
+    // Preserve Windows file attributes (hidden, system, etc.)
+    #[cfg(windows)]
+    if options.preserve_windows_attributes {
+        crate::win_attrs::copy_attributes(src, dst);
+    }
+
     Ok(FileCopyResult::copied(bytes_copied))
 }
 
@@ -601,6 +607,12 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                     ));
                 }
             }
+        }
+
+        // Preserve Windows directory attributes (hidden, system, etc.)
+        #[cfg(windows)]
+        if options.preserve_windows_attributes {
+            crate::win_attrs::copy_attributes(&dir.src, &dir.dst);
         }
 
         if created {
@@ -1956,5 +1968,168 @@ mod tests {
             fs::read_to_string(dst.join("old.txt")).unwrap(),
             "newer in dst"
         );
+    }
+
+    // ==================== Windows attribute preservation tests ====================
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_preserves_hidden_attribute() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("hidden.txt");
+        let dst_file = dst_dir.path().join("hidden.txt");
+
+        fs::write(&src_file, "secret content").unwrap();
+
+        // Set hidden attribute on source
+        win_attrs::set_attributes(&src_file, 0x2).unwrap(); // FILE_ATTRIBUTE_HIDDEN
+
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify destination is also hidden
+        let dst_attrs = win_attrs::get_attributes(&dst_file).unwrap();
+        assert_ne!(dst_attrs & 0x2, 0, "Destination file should be hidden");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_preserves_system_attribute() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("system.txt");
+        let dst_file = dst_dir.path().join("system.txt");
+
+        fs::write(&src_file, "system content").unwrap();
+
+        // Set system attribute on source
+        win_attrs::set_attributes(&src_file, 0x4).unwrap(); // FILE_ATTRIBUTE_SYSTEM
+
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify destination has system attribute
+        let dst_attrs = win_attrs::get_attributes(&dst_file).unwrap();
+        assert_ne!(
+            dst_attrs & 0x4,
+            0,
+            "Destination file should have system attribute"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_preserves_multiple_attributes() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("multi.txt");
+        let dst_file = dst_dir.path().join("multi.txt");
+
+        fs::write(&src_file, "content").unwrap();
+
+        // Set multiple attributes: hidden + system + archive
+        let attrs = 0x2 | 0x4 | 0x20;
+        win_attrs::set_attributes(&src_file, attrs).unwrap();
+
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify all attributes are preserved
+        let dst_attrs = win_attrs::get_attributes(&dst_file).unwrap();
+        assert_ne!(dst_attrs & 0x2, 0, "Hidden attribute should be preserved");
+        assert_ne!(dst_attrs & 0x4, 0, "System attribute should be preserved");
+        assert_ne!(dst_attrs & 0x20, 0, "Archive attribute should be preserved");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_without_windows_attributes() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("hidden.txt");
+        let dst_file = dst_dir.path().join("hidden.txt");
+
+        fs::write(&src_file, "content").unwrap();
+
+        // Set hidden attribute on source
+        win_attrs::set_attributes(&src_file, 0x2).unwrap();
+
+        // Disable Windows attribute preservation
+        let options = CopyOptions::default().without_windows_attributes();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Destination should NOT be hidden
+        let dst_attrs = win_attrs::get_attributes(&dst_file).unwrap();
+        assert_eq!(dst_attrs & 0x2, 0, "Destination file should not be hidden");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_preserves_hidden_directory() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a hidden subdirectory with a file
+        let hidden_subdir = src_dir.path().join("hidden_dir");
+        fs::create_dir(&hidden_subdir).unwrap();
+        fs::write(hidden_subdir.join("file.txt"), "content").unwrap();
+
+        // Make the subdirectory hidden
+        win_attrs::set_attributes(&hidden_subdir, 0x2).unwrap();
+
+        let options = CopyOptions::default();
+        let dst = dst_dir.path().join("copied");
+        copy_dir(src_dir.path(), &dst, &options).unwrap();
+
+        // Verify the copied subdirectory is also hidden
+        let dst_subdir = dst.join("hidden_dir");
+        let dst_attrs = win_attrs::get_attributes(&dst_subdir).unwrap();
+        assert_ne!(dst_attrs & 0x2, 0, "Destination directory should be hidden");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_preserves_hidden_files() {
+        use crate::win_attrs;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a hidden file
+        let hidden_file = src_dir.path().join("hidden.txt");
+        fs::write(&hidden_file, "hidden content").unwrap();
+        win_attrs::set_attributes(&hidden_file, 0x2).unwrap();
+
+        // Create a normal file
+        fs::write(src_dir.path().join("normal.txt"), "normal content").unwrap();
+
+        let options = CopyOptions::default();
+        let dst = dst_dir.path().join("copied");
+        copy_dir(src_dir.path(), &dst, &options).unwrap();
+
+        // Hidden file should be hidden in destination
+        let dst_hidden = dst.join("hidden.txt");
+        let dst_attrs = win_attrs::get_attributes(&dst_hidden).unwrap();
+        assert_ne!(dst_attrs & 0x2, 0, "Hidden file should remain hidden");
+
+        // Normal file should not be hidden
+        let dst_normal = dst.join("normal.txt");
+        let normal_attrs = win_attrs::get_attributes(&dst_normal).unwrap();
+        assert_eq!(normal_attrs & 0x2, 0, "Normal file should not be hidden");
     }
 }

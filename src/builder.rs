@@ -255,6 +255,29 @@ impl CopyBuilder {
         self
     }
 
+    /// Disable Windows file attribute preservation.
+    ///
+    /// By default on Windows, file attributes like Hidden, System, and Archive
+    /// are copied from source to destination. This option disables that behavior.
+    ///
+    /// This option has no effect on non-Windows platforms.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyBuilder;
+    ///
+    /// let stats = CopyBuilder::new("src", "dst")
+    ///     .no_windows_attributes()
+    ///     .run()?;
+    /// # Ok::<(), parcopy::Error>(())
+    /// ```
+    #[must_use]
+    pub fn no_windows_attributes(mut self) -> Self {
+        self.options = self.options.without_windows_attributes();
+        self
+    }
+
     /// Limit the maximum directory depth to traverse.
     ///
     /// A depth of 0 means only copy the top-level directory contents.

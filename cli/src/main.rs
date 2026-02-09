@@ -58,6 +58,12 @@ struct Args {
     #[arg(long)]
     no_perms: bool,
 
+    /// Do not preserve Windows file attributes (hidden, system, etc.)
+    ///
+    /// This option only has an effect on Windows.
+    #[arg(long)]
+    no_win_attrs: bool,
+
     /// Do not call fsync after each file (faster but less safe)
     #[arg(long)]
     no_sync: bool,
@@ -240,6 +246,9 @@ fn build_options(args: &Args) -> CopyOptions {
     if args.no_perms {
         options.preserve_permissions = false;
         options.preserve_dir_permissions = false;
+    }
+    if args.no_win_attrs {
+        options = options.without_windows_attributes();
     }
     if args.no_sync {
         options = options.without_fsync();

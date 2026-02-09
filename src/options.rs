@@ -68,6 +68,7 @@ pub enum OnConflict {
 /// | `preserve_dir_permissions` | `true` | Copy directory permissions |
 /// | `preserve_symlinks` | `true` | Recreate symlinks (don't follow) |
 /// | `preserve_timestamps` | `true` | Copy file timestamps (mtime/atime) |
+/// | `preserve_windows_attributes` | `true` | Copy Windows file attributes (hidden, system, etc.) |
 /// | `fsync` | `true` | Sync to disk after write |
 /// | `warn_escaping_symlinks` | `true` | Warn about `..` in symlinks |
 /// | `block_escaping_symlinks` | `false` | Block symlinks with `..` |
@@ -137,6 +138,15 @@ pub struct CopyOptions {
     /// for backup and sync scenarios.
     pub preserve_timestamps: bool,
 
+    /// Whether to preserve Windows file attributes (default: true)
+    ///
+    /// When enabled on Windows, file attributes like Hidden, System, Archive,
+    /// and ReadOnly are copied from source to destination. This is important
+    /// for preserving file visibility and system file markers.
+    ///
+    /// This option has no effect on non-Windows platforms.
+    pub preserve_windows_attributes: bool,
+
     /// Callback for warnings (optional)
     ///
     /// If not set and `tracing` feature is enabled, warnings are logged via tracing.
@@ -158,6 +168,7 @@ impl Default for CopyOptions {
             block_escaping_symlinks: false,
             max_depth: None,
             preserve_timestamps: true,
+            preserve_windows_attributes: true,
             warn_handler: None,
         }
     }
@@ -225,6 +236,19 @@ impl CopyOptions {
     #[must_use]
     pub fn without_permissions(mut self) -> Self {
         self.preserve_permissions = false;
+        self
+    }
+
+    /// Disable Windows attribute preservation
+    ///
+    /// By default on Windows, file attributes (Hidden, System, Archive, etc.)
+    /// are copied from source to destination. Disable this if you want files
+    /// to have default attributes.
+    ///
+    /// This option has no effect on non-Windows platforms.
+    #[must_use]
+    pub fn without_windows_attributes(mut self) -> Self {
+        self.preserve_windows_attributes = false;
         self
     }
 
