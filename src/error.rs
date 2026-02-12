@@ -12,6 +12,7 @@
 //! | Conflict | [`Error::AlreadyExists`] |
 //! | Partial | [`Error::PartialCopy`], [`Error::PartialSymlinks`] |
 //! | Safety | [`Error::SymlinkLoop`], [`Error::MaxDepthExceeded`] |
+//! | Control | [`Error::Cancelled`] |
 
 use std::path::PathBuf;
 use thiserror::Error;
@@ -96,5 +97,23 @@ pub enum Error {
         path: PathBuf,
         /// The configured maximum depth
         max_depth: usize,
+    },
+
+    /// Operation was cancelled via cancellation token
+    ///
+    /// This error carries partial statistics so the caller knows what
+    /// was completed before cancellation. Re-running with
+    /// [`OnConflict::Skip`](crate::OnConflict::Skip) (the default)
+    /// will resume where the cancelled operation left off.
+    #[error("Operation cancelled ({files_copied} files copied, {bytes_copied} bytes)")]
+    Cancelled {
+        /// Number of files successfully copied before cancellation
+        files_copied: u64,
+        /// Total bytes copied before cancellation
+        bytes_copied: u64,
+        /// Number of files skipped before cancellation
+        files_skipped: u64,
+        /// Number of directories created before cancellation
+        dirs_created: u64,
     },
 }

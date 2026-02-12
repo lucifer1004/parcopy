@@ -8,6 +8,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use parcopy::{copy_dir, copy_file, CopyOptions, CopyStats, OnConflict};
 use std::fs::Metadata;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// pcp - Fast parallel file copy
@@ -136,7 +138,29 @@ fn main() -> Result<()> {
     }
 
     // Build options
-    let options = build_options(&args);
+    let mut options = build_options(&args);
+
+    // Install two-stage Ctrl+C handler:
+    //   First press:  graceful cancel (finish in-flight files, then stop)
+    //   Second press: hard abort (immediate process exit)
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let cancel_clone = cancel.clone();
+        ctrlc::set_handler(move || {
+            if cancel_clone.load(Ordering::Relaxed) {
+                // Second Ctrl+C — hard abort
+                eprintln!("\nForce quit.");
+                std::process::exit(130);
+            }
+            // First Ctrl+C — graceful cancel
+            cancel_clone.store(true, Ordering::Relaxed);
+            eprintln!(
+                "\nCancelling... finishing in-flight files. Press Ctrl+C again to abort immediately."
+            );
+        })
+        .ok();
+    }
+    options = options.with_cancel_token(cancel);
 
     // Dry run mode
     if args.dry_run {
@@ -184,6 +208,21 @@ fn main() -> Result<()> {
             Ok(())
         }
         Err(e) => {
+            // Check if the underlying error is a cancellation
+            if let Some(parcopy::Error::Cancelled {
+                files_copied,
+                bytes_copied,
+                ..
+            }) = e.downcast_ref::<parcopy::Error>()
+            {
+                eprintln!(
+                    "Cancelled after copying {} files ({}).",
+                    files_copied,
+                    format_bytes(*bytes_copied)
+                );
+                eprintln!("Re-run with the same command to resume.");
+                std::process::exit(130);
+            }
             eprintln!("error: {:#}", e);
             std::process::exit(1);
         }

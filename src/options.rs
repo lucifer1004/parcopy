@@ -15,6 +15,9 @@
 //!     .with_max_depth(100);
 //! ```
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 /// Behavior when destination file already exists.
 ///
 /// This enum controls what happens when a file or symlink already exists
@@ -73,6 +76,7 @@ pub enum OnConflict {
 /// | `warn_escaping_symlinks` | `true` | Warn about `..` in symlinks |
 /// | `block_escaping_symlinks` | `false` | Block symlinks with `..` |
 /// | `max_depth` | `None` | No depth limit |
+/// | `cancel_token` | `None` | No cancellation support |
 ///
 /// # Example
 ///
@@ -147,6 +151,31 @@ pub struct CopyOptions {
     /// This option has no effect on non-Windows platforms.
     pub preserve_windows_attributes: bool,
 
+    /// Cancellation token for cooperative cancellation (default: None)
+    ///
+    /// When set, copy operations check this token before starting each file.
+    /// If the token is set to `true`, no new files are started and the operation
+    /// returns [`Error::Cancelled`](crate::Error::Cancelled) with partial statistics.
+    ///
+    /// In-flight files always finish (atomic writes guarantee no partial files).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyOptions;
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicBool;
+    ///
+    /// let cancel = Arc::new(AtomicBool::new(false));
+    /// let options = CopyOptions::default()
+    ///     .with_cancel_token(cancel.clone());
+    ///
+    /// // From another thread or signal handler:
+    /// // cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    /// ```
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub cancel_token: Option<Arc<AtomicBool>>,
+
     /// Callback for warnings (optional)
     ///
     /// If not set and `tracing` feature is enabled, warnings are logged via tracing.
@@ -169,6 +198,7 @@ impl Default for CopyOptions {
             max_depth: None,
             preserve_timestamps: true,
             preserve_windows_attributes: true,
+            cancel_token: None,
             warn_handler: None,
         }
     }
@@ -250,6 +280,38 @@ impl CopyOptions {
     pub fn without_windows_attributes(mut self) -> Self {
         self.preserve_windows_attributes = false;
         self
+    }
+
+    /// Set a cancellation token for cooperative cancellation
+    ///
+    /// The token is checked before starting each file in parallel copy operations.
+    /// Set it to `true` from another thread or a signal handler to gracefully
+    /// stop the copy. In-flight files always finish to maintain atomicity.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyOptions;
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicBool;
+    ///
+    /// let cancel = Arc::new(AtomicBool::new(false));
+    /// let options = CopyOptions::default()
+    ///     .with_cancel_token(cancel);
+    /// ```
+    #[must_use]
+    pub fn with_cancel_token(mut self, token: Arc<AtomicBool>) -> Self {
+        self.cancel_token = Some(token);
+        self
+    }
+
+    /// Check if the operation has been cancelled.
+    ///
+    /// Returns `false` if no cancellation token is set.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_token
+            .as_ref()
+            .is_some_and(|t| t.load(Ordering::Relaxed))
     }
 
     pub(crate) fn warn(&self, msg: &str) {

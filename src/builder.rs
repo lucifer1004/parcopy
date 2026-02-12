@@ -50,6 +50,8 @@ use crate::copy::{copy_dir, copy_file, CopyStats};
 use crate::error::Result;
 use crate::options::{CopyOptions, OnConflict};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// A builder for configuring and executing copy operations.
 ///
@@ -318,6 +320,31 @@ impl CopyBuilder {
     #[must_use]
     pub fn block_escaping_symlinks(mut self) -> Self {
         self.options = self.options.with_block_escaping_symlinks();
+        self
+    }
+
+    /// Set a cancellation token for cooperative cancellation.
+    ///
+    /// When the token is set to `true`, the copy operation stops starting new
+    /// files and returns [`Error::Cancelled`](crate::Error::Cancelled) with
+    /// partial statistics. In-flight files always finish to maintain atomicity.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyBuilder;
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::AtomicBool;
+    ///
+    /// let cancel = Arc::new(AtomicBool::new(false));
+    /// // Pass clone to a signal handler or another thread
+    /// let stats = CopyBuilder::new("src", "dst")
+    ///     .cancel_token(cancel)
+    ///     .run();
+    /// ```
+    #[must_use]
+    pub fn cancel_token(mut self, token: Arc<AtomicBool>) -> Self {
+        self.options = self.options.with_cancel_token(token);
         self
     }
 
@@ -714,5 +741,21 @@ mod tests {
         assert!(!options.preserve_timestamps);
         assert!(!options.preserve_permissions);
         assert_eq!(options.max_depth, Some(5));
+    }
+
+    #[test]
+    fn test_builder_cancel_token() {
+        use std::sync::atomic::AtomicBool;
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let builder = CopyBuilder::new("src", "dst").cancel_token(cancel.clone());
+
+        let options = builder.options();
+        assert!(options.cancel_token.is_some());
+        assert!(!options.is_cancelled());
+
+        // Set the token
+        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(options.is_cancelled());
     }
 }

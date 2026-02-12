@@ -579,6 +579,15 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
     // Phase 2: Create directory structure (sequential, must respect parent ordering)
     let mut dirs_created = 0u64;
     for dir in &dirs {
+        if options.is_cancelled() {
+            return Err(Error::Cancelled {
+                files_copied: 0,
+                bytes_copied: 0,
+                files_skipped: 0,
+                dirs_created,
+            });
+        }
+
         // Check if directory already exists
         let created = if !dir.dst.exists() {
             fs::create_dir_all(&dir.dst)?;
@@ -633,6 +642,11 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
     if total_files > 0 {
         let do_copy = |files: &[(PathBuf, PathBuf)]| {
             files.par_iter().for_each(|(src_file, dst_file)| {
+                // Check cancellation before starting each file
+                if options.is_cancelled() {
+                    return;
+                }
+
                 match copy_file_internal(src_file, dst_file, options) {
                     Ok(result) => {
                         if result.copied {
@@ -671,6 +685,16 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
             do_copy(&files);
         }
 
+        // Check cancellation after parallel copy completes
+        if options.is_cancelled() {
+            return Err(Error::Cancelled {
+                files_copied: files_copied.load(Ordering::Relaxed),
+                bytes_copied: bytes_copied.load(Ordering::Relaxed),
+                files_skipped: files_skipped.load(Ordering::Relaxed),
+                dirs_created,
+            });
+        }
+
         let failed = fail_count.load(Ordering::Relaxed);
         if failed > 0 {
             return Err(Error::PartialCopy {
@@ -688,6 +712,15 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
         let mut symlink_failures = 0usize;
 
         for (src_link, dst_link) in &symlinks {
+            if options.is_cancelled() {
+                return Err(Error::Cancelled {
+                    files_copied: files_copied.load(Ordering::Relaxed),
+                    bytes_copied: bytes_copied.load(Ordering::Relaxed),
+                    files_skipped: files_skipped.load(Ordering::Relaxed),
+                    dirs_created,
+                });
+            }
+
             match fs::read_link(src_link) {
                 Ok(target) => {
                     // Check for escaping symlinks (contains ".." components)
@@ -2131,5 +2164,120 @@ mod tests {
         let dst_normal = dst.join("normal.txt");
         let normal_attrs = win_attrs::get_attributes(&dst_normal).unwrap();
         assert_eq!(normal_attrs & 0x2, 0, "Normal file should not be hidden");
+    }
+
+    // =========================================================================
+    // Cancellation tests
+    // =========================================================================
+
+    #[test]
+    fn test_cancel_before_start() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create some files
+        for i in 0..5 {
+            fs::write(src_dir.path().join(format!("file_{}.txt", i)), "content").unwrap();
+        }
+
+        // Create cancel token and set it BEFORE starting
+        let cancel = Arc::new(AtomicBool::new(true));
+        let options = CopyOptions::default().with_cancel_token(cancel);
+
+        let result = copy_dir(src_dir.path(), &dst_dir.path().join("dst"), &options);
+
+        // Should return Cancelled error with 0 files copied (cancelled during dir creation)
+        match result {
+            Err(Error::Cancelled {
+                files_copied,
+                bytes_copied,
+                ..
+            }) => {
+                assert_eq!(files_copied, 0);
+                assert_eq!(bytes_copied, 0);
+            }
+            other => panic!("Expected Error::Cancelled, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_cancel_during_copy() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        use std::thread;
+        use std::time::Duration;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create many files to increase chance of catching mid-copy
+        for i in 0..100 {
+            fs::write(
+                src_dir.path().join(format!("file_{:03}.txt", i)),
+                format!("content for file {}", i),
+            )
+            .unwrap();
+        }
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_clone = cancel.clone();
+
+        // Set cancellation after a tiny delay
+        thread::spawn(move || {
+            thread::sleep(Duration::from_micros(100));
+            cancel_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+
+        let options = CopyOptions::default().with_cancel_token(cancel);
+
+        let result = copy_dir(src_dir.path(), &dst_dir.path().join("dst"), &options);
+
+        // Should be cancelled (either during copy or after)
+        match result {
+            Err(Error::Cancelled {
+                files_copied,
+                bytes_copied,
+                ..
+            }) => {
+                // Some files may have been copied before cancellation
+                // The exact count depends on timing, but we can verify the error type
+                assert!(files_copied <= 100);
+                // If any files were copied, bytes should be non-zero
+                if files_copied > 0 {
+                    assert!(bytes_copied > 0);
+                }
+            }
+            Ok(stats) => {
+                // Race condition: copy might complete before cancel fires
+                // This is acceptable behavior
+                assert_eq!(stats.files_copied, 100);
+            }
+            Err(other) => panic!("Expected Cancelled or Ok, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_cancel_token_none_no_effect() {
+        // Regression test: ensure no cancellation token means normal operation
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        for i in 0..10 {
+            fs::write(src_dir.path().join(format!("file_{}.txt", i)), "content").unwrap();
+        }
+
+        let options = CopyOptions::default(); // No cancel token
+
+        let result = copy_dir(src_dir.path(), &dst_dir.path().join("dst"), &options);
+
+        match result {
+            Ok(stats) => {
+                assert_eq!(stats.files_copied, 10);
+            }
+            Err(e) => panic!("Expected Ok, got {:?}", e),
+        }
     }
 }

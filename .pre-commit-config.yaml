@@ -17,22 +17,30 @@ repos:
     hooks:
       - id: gitleaks
 
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
-    hooks:
-      - id: fmt
-      - id: cargo-check
-        args: [--workspace, --all-features]
-      - id: clippy
-        args: [--workspace, --all-features, --, -D, warnings]
-
   - repo: local
     hooks:
-      - id: cargo-test
-        name: cargo test runner
-        entry: cargo test --workspace
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all
         language: system
         pass_filenames: false
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --workspace
+        language: system
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace -- -D warnings
+        language: system
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo test runner
+        entry: cargo test --workspace --quiet
+        language: system
+        pass_filenames: false
+        env:
+          CI: "1"
 
   - repo: https://github.com/rbubley/mirrors-prettier
     rev: v3.7.4

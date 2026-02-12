@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.2] - 2026-02-12
+
+### Added
+
+- Graceful cancellation support
+  - New option `cancel_token` in `CopyOptions` for cooperative cancellation
+  - New builder method `cancel_token()` in `CopyBuilder`
+  - New `Error::Cancelled` variant with partial statistics
+  - Two-stage Ctrl+C handling in `pcp` CLI:
+    - First press: graceful cancel (finish in-flight files)
+    - Second press: hard abort (immediate exit)
+  - Re-run with same command to resume (uses default `Skip` strategy)
+  - Fixes [#2](https://github.com/lucifer1004/parcopy/issues/2)
+
 ## [v0.1.1] - 2026-02-09
 
 ### Added

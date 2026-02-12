@@ -20,6 +20,7 @@ A production-grade library for copying files and directories with safety guarant
 - **Symlink aware** - Correctly handles symlinks without following them
 - **Symlink loop detection** - Prevents infinite recursion from circular symlinks
 - **Security hardened** - Detects and optionally blocks escaping symlinks
+- **Graceful cancellation** - Cooperative cancellation with Ctrl+C support
 
 ## Why parcopy?
 
@@ -111,6 +112,34 @@ let stats = CopyBuilder::new("untrusted_upload", "safe_location")
     .run()?;
 ```
 
+### Cancellable Copy
+
+Support graceful cancellation from signal handlers:
+
+```rust
+use parcopy::CopyBuilder;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
+let cancel = Arc::new(AtomicBool::new(false));
+
+// Clone for signal handler
+let cancel_clone = cancel.clone();
+// In your signal handler: cancel_clone.store(true, Ordering::Relaxed);
+
+let result = CopyBuilder::new("src", "dst")
+    .cancel_token(cancel)
+    .run();
+
+match result {
+    Ok(stats) => println!("Copied {} files", stats.files_copied),
+    Err(parcopy::Error::Cancelled { files_copied, .. }) => {
+        println!("Cancelled after {} files. Re-run to resume.", files_copied);
+    }
+    Err(e) => eprintln!("Error: {}", e),
+}
+```
+
 ## Function API
 
 For more control, use the function API with `CopyOptions`:
@@ -139,6 +168,7 @@ let stats = copy_dir(Path::new("src"), Path::new("dst"), &options)?;
 | `preserve_timestamps`     | `true`  | Copy file timestamps                 |
 | `max_depth`               | `None`  | Maximum directory depth              |
 | `block_escaping_symlinks` | `false` | Block symlinks with `..`             |
+| `cancel_token`            | `None`  | Cancellation token for graceful stop |
 
 ### Conflict Strategies
 
@@ -230,6 +260,15 @@ pcp -r src/ dst/              # Recursive copy
 pcp --update-newer src/ dst/  # Incremental copy
 pcp -j 8 src/ dst/            # 8 parallel threads
 ```
+
+### Graceful Cancellation
+
+Press Ctrl+C during a copy operation:
+
+- **First press**: Graceful cancel — finishes in-flight files, reports progress
+- **Second press**: Hard abort — immediate exit
+
+Re-run the same command to resume (existing files are skipped by default).
 
 ## License
 

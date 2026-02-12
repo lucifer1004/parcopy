@@ -18,3 +18,4 @@ parcopy = { workspace = true, features = ["progress", "reflink"] }
 clap.workspace = true
 indicatif.workspace = true
 anyhow.workspace = true
+ctrlc = "3"
