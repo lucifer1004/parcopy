@@ -118,6 +118,7 @@ mod builder;
 mod copy;
 mod error;
 mod options;
+mod utils;
 
 #[cfg(feature = "progress")]
 mod progress;

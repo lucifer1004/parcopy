@@ -18,6 +18,8 @@ use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
+use crate::utils::path::to_extended_length_path;
+
 use windows::Win32::Storage::FileSystem::{
     GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES,
 };
@@ -47,9 +49,17 @@ const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
 const PRESERVE_MASK: u32 = 0x1 | 0x2 | 0x4 | 0x20 | 0x2000;
 
 /// Convert a Path to a null-terminated wide string for Win32 API.
+///
+/// On Windows, this first converts the path to extended-length format
+/// (\\?\ prefix) to support paths longer than MAX_PATH (260 characters).
 #[inline]
 fn path_to_wide(path: &Path) -> Vec<u16> {
-    path.as_os_str().encode_wide().chain(Some(0)).collect()
+    let extended_path = to_extended_length_path(path);
+    extended_path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect()
 }
 
 /// Get file attributes from a path.

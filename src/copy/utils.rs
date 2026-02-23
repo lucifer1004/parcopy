@@ -4,6 +4,7 @@
 //! copy operations, including symlink handling, timestamp preservation,
 //! and platform-specific utilities.
 
+use crate::utils::path::safe_path;
 use filetime::{set_file_times, FileTime};
 use std::fs::{self, Metadata};
 use std::io;
@@ -186,13 +187,17 @@ pub(crate) fn preserve_timestamps(src_meta: &Metadata, dst: &Path) -> io::Result
 }
 
 /// Remove an existing file, symlink, or directory at the given path
+///
+/// Uses extended-length path format on Windows to support long paths.
 #[inline]
 pub(crate) fn remove_existing(path: &Path, meta: &Metadata) -> io::Result<()> {
+    // Convert to extended-length path format on Windows for long path support
+    let safe_path = safe_path(path);
     let ft = meta.file_type();
     if ft.is_symlink() || ft.is_file() {
-        fs::remove_file(path)
+        fs::remove_file(&safe_path)
     } else if ft.is_dir() {
-        fs::remove_dir_all(path)
+        fs::remove_dir_all(&safe_path)
     } else {
         Ok(())
     }

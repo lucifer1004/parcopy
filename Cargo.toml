@@ -5,6 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.83"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lucifer1004/parcopy"
 
@@ -21,8 +22,8 @@ anyhow = "1"
 [package]
 name = "parcopy"
 version.workspace = true
-edition = "2021"
-rust-version = "1.83"
+edition.workspace = true
+rust-version.workspace = true
 description = "Parallel, atomic, and safe file/directory copying for Rust"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/lucifer1004/parcopy"

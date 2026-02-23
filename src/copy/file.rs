@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use crate::options::{CopyOptions, OnConflict};
+use crate::utils::path::safe_path;
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
@@ -150,10 +151,14 @@ pub(crate) fn copy_file_internal(
     // Create temp file in destination directory for atomic rename
     let dst_parent = dst.parent().unwrap_or(Path::new("."));
 
+    // On Windows, convert to extended-length path format to support long paths (>260 chars)
+    // This is critical for files with long names or deeply nested directories
+    let safe_dst_parent = safe_path(dst_parent);
+
     // Create temp file with appropriate permissions
     let temp_file = if options.preserve_permissions {
         // Use default tempfile creation (0o600), will set source permissions later
-        tempfile::NamedTempFile::new_in(dst_parent).map_err(|e| Error::TempFile {
+        tempfile::NamedTempFile::new_in(&safe_dst_parent).map_err(|e| Error::TempFile {
             path: dst_parent.to_path_buf(),
             source: e,
         })?
@@ -165,7 +170,7 @@ pub(crate) fn copy_file_internal(
             use std::os::unix::fs::PermissionsExt;
             tempfile::Builder::new()
                 .permissions(fs::Permissions::from_mode(0o666))
-                .tempfile_in(dst_parent)
+                .tempfile_in(&safe_dst_parent)
                 .map_err(|e| Error::TempFile {
                     path: dst_parent.to_path_buf(),
                     source: e,
@@ -173,7 +178,7 @@ pub(crate) fn copy_file_internal(
         }
         #[cfg(not(unix))]
         {
-            tempfile::NamedTempFile::new_in(dst_parent).map_err(|e| Error::TempFile {
+            tempfile::NamedTempFile::new_in(&safe_dst_parent).map_err(|e| Error::TempFile {
                 path: dst_parent.to_path_buf(),
                 source: e,
             })?
@@ -194,18 +199,22 @@ pub(crate) fn copy_file_internal(
         fs::set_permissions(temp_file.path(), perms)?;
     }
 
+    // Convert destination to extended-length path format on Windows for the persist operation
+    // This is necessary when the destination path is very long (>260 chars on Windows)
+    let safe_dst = safe_path(dst);
+
     // Atomic rename
     // - Overwrite/UpdateNewer mode: use persist() to overwrite any file created in the TOCTOU window
     // - Skip/Error mode: use persist_noclobber() to detect race conditions
     let persist_result = if options.on_conflict == OnConflict::Overwrite
         || options.on_conflict == OnConflict::UpdateNewer
     {
-        temp_file.persist(dst).map_err(|e| Error::Persist {
+        temp_file.persist(&safe_dst).map_err(|e| Error::Persist {
             path: dst.to_path_buf(),
             source: e.error,
         })
     } else {
-        match temp_file.persist_noclobber(dst) {
+        match temp_file.persist_noclobber(&safe_dst) {
             Ok(f) => Ok(f),
             Err(e) => {
                 if e.error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -626,5 +635,186 @@ mod tests {
             ))
         };
         assert!(attrs & FILE_ATTRIBUTE_HIDDEN.0 != 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_with_long_name() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a filename longer than 125 characters (the reported threshold)
+        let long_name = "a".repeat(150) + ".txt";
+        let src_file = src_dir.path().join(&long_name);
+        let dst_file = dst_dir.path().join(&long_name);
+
+        // Create source file with long name
+        fs::write(&src_file, "content with long filename").unwrap();
+
+        // Copy the file - this should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination exists and has correct content
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "content with long filename");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_with_very_long_name() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a filename close to Windows limit (255 characters)
+        let long_name = "b".repeat(250) + ".txt";
+        let src_file = src_dir.path().join(&long_name);
+        let dst_file = dst_dir.path().join(&long_name);
+
+        // Create source file with very long name
+        fs::write(&src_file, "content with very long filename").unwrap();
+
+        // Copy the file - this should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination exists and has correct content
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "content with very long filename");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_with_long_name_overwrite() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a filename longer than 125 characters
+        let long_name = "c".repeat(150) + ".txt";
+        let src_file = src_dir.path().join(&long_name);
+        let dst_file = dst_dir.path().join(&long_name);
+
+        // Create source and destination files
+        fs::write(&src_file, "new content").unwrap();
+        fs::write(&dst_file, "old content").unwrap();
+
+        // Copy with overwrite
+        let options = CopyOptions::default().with_on_conflict(OnConflict::Overwrite);
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination has new content
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "new content");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_with_long_total_path() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create a deeply nested directory structure to get a long total path
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..15 {
+            dst_path = dst_path.join(format!("level{:02}_{}", i, "x".repeat(20)));
+        }
+        fs::create_dir_all(&dst_path).unwrap();
+
+        // Add a reasonably long filename to make total path > 500 chars
+        let long_name = "file_".repeat(30) + ".txt";
+        let src_file = src_dir.path().join("source.txt");
+        let dst_file = dst_path.join(&long_name);
+
+        // Verify total path is long (> 500 chars)
+        let total_path_len = dst_file.to_string_lossy().len();
+        assert!(total_path_len > 500, "Test path length: {}", total_path_len);
+
+        // Create source file
+        fs::write(&src_file, "content with long total path").unwrap();
+
+        // Copy the file - should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination exists and has correct content
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "content with long total path");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_with_very_long_total_path() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create a very deeply nested directory structure
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..30 {
+            dst_path = dst_path.join(format!("nested{:03}_{}", i, "y".repeat(25)));
+        }
+        fs::create_dir_all(&dst_path).unwrap();
+
+        // Add filename to make total path > 1000 chars
+        let long_name = "data_".repeat(40) + ".txt";
+        let src_file = src_dir.path().join("source.txt");
+        let dst_file = dst_path.join(&long_name);
+
+        // Verify total path is very long (> 1000 chars)
+        let total_path_len = dst_file.to_string_lossy().len();
+        assert!(
+            total_path_len > 1000,
+            "Test path length: {}",
+            total_path_len
+        );
+
+        // Create source file
+        fs::write(&src_file, "content with very long total path").unwrap();
+
+        // Copy the file - should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination exists and has correct content
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "content with very long total path");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_file_exceeds_max_path_limit() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create path that exceeds old MAX_PATH (260 chars)
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..10 {
+            dst_path = dst_path.join(format!("dir{:02}_{}", i, "z".repeat(20)));
+        }
+        fs::create_dir_all(&dst_path).unwrap();
+
+        // Add filename to push total path well over 260 chars
+        let long_name = "testfile_".repeat(20) + ".txt";
+        let src_file = src_dir.path().join("source.txt");
+        let dst_file = dst_path.join(&long_name);
+
+        // Verify total path exceeds old MAX_PATH limit
+        let total_path_len = dst_file.to_string_lossy().len();
+        assert!(total_path_len > 260, "Test path length: {}", total_path_len);
+
+        // Create source file
+        fs::write(&src_file, "exceeds max path").unwrap();
+
+        // Copy the file - would fail without extended-length path support
+        let options = CopyOptions::default();
+        copy_file(&src_file, &dst_file, &options).unwrap();
+
+        // Verify the destination exists
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "exceeds max path");
     }
 }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- Windows long path support for files with names >125 characters ([#4](https://github.com/lucifer1004/parcopy/issues/4))
+  - Added extended-length path syntax support using `\\?\` prefix on Windows
+  - Fixed issue where copying files with long names failed on Windows
+  - All file operations (copy, create, remove, symlink) now support long paths
+  - Temp file creation and persist operations use extended-length paths
+  - Directory creation and removal operations use extended-length paths
+  - Windows attribute operations use extended-length paths
+  - Added comprehensive integration tests for long path scenarios:
+    - Long filename components (150 and 254 characters)
+    - Long total paths exceeding 500 characters (deep nesting)
+    - Very long total paths exceeding 1000 characters (deep nesting)
+    - Paths specifically exceeding old MAX_PATH limit (260 chars)
+    - Directory copying with long destination paths
+    - Overwrite scenarios with long filenames
+    - All tests properly validate extended-length path syntax support
+
 ## [v0.2.0] - 2026-02-23
 
 ### Added

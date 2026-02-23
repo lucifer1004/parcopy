@@ -2,7 +2,7 @@
 name = "parcopy-cli"
 version.workspace = true
 edition.workspace = true
-rust-version = "1.80"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Fast parallel file copy command (pcp)"

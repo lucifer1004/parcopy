@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use crate::options::{CopyOptions, OnConflict};
+use crate::utils::path::safe_path;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
@@ -156,8 +157,10 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
         }
 
         // Check if directory already exists
-        let created = if !dir.dst.exists() {
-            fs::create_dir_all(&dir.dst)?;
+        // Use extended-length path format on Windows to support long paths
+        let safe_dst = safe_path(&dir.dst);
+        let created = if !safe_dst.exists() {
+            fs::create_dir_all(&safe_dst)?;
             true
         } else {
             false
@@ -167,7 +170,7 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
         if options.preserve_dir_permissions {
             match fs::metadata(&dir.src) {
                 Ok(metadata) => {
-                    if let Err(e) = fs::set_permissions(&dir.dst, metadata.permissions()) {
+                    if let Err(e) = fs::set_permissions(&safe_dst, metadata.permissions()) {
                         options.warn(&format!(
                             "Failed to set permissions on {}: {}",
                             dir.dst.display(),
@@ -188,7 +191,7 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
         // Preserve Windows directory attributes (hidden, system, etc.)
         #[cfg(windows)]
         if options.preserve_windows_attributes {
-            crate::win_attrs::copy_attributes(&dir.src, &dir.dst);
+            crate::win_attrs::copy_attributes(&dir.src, &safe_dst);
         }
 
         if created {
@@ -409,9 +412,11 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                                 return Err(Error::AlreadyExists(dst_link.clone()));
                             }
                             OnConflict::Overwrite => {
+                                // Convert to extended-length path format on Windows for long path support
+                                let safe_dst_link = safe_path(dst_link);
                                 // Remove existing file/symlink/dir before creating symlink
                                 if is_symlink(dst_link) || dst_link.is_file() {
-                                    if let Err(e) = fs::remove_file(dst_link) {
+                                    if let Err(e) = fs::remove_file(&safe_dst_link) {
                                         options.warn(&format!(
                                             "Failed to remove existing file {}: {}",
                                             dst_link.display(),
@@ -421,7 +426,7 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                                         continue;
                                     }
                                 } else if dst_link.is_dir() {
-                                    if let Err(e) = fs::remove_dir_all(dst_link) {
+                                    if let Err(e) = fs::remove_dir_all(&safe_dst_link) {
                                         options.warn(&format!(
                                             "Failed to remove existing directory {}: {}",
                                             dst_link.display(),
@@ -435,8 +440,9 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                         }
                     }
 
-                    // Create symlink
-                    if let Err(e) = symlink(&target, dst_link) {
+                    // Create symlink (convert to extended-length path format on Windows for long path support)
+                    let safe_dst_link = safe_path(dst_link);
+                    if let Err(e) = symlink(&target, &safe_dst_link) {
                         options.warn(&format!(
                             "Failed to create symlink {} -> {}: {}",
                             dst_link.display(),
@@ -1333,5 +1339,172 @@ mod tests {
         let messages = VERBOSE_MESSAGES.lock().unwrap();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].starts_with("copied "));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_with_long_filename() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a file with a name longer than 125 characters
+        let long_name = "a".repeat(150) + ".txt";
+        let src_file = src_dir.path().join(&long_name);
+        let dst_file = dst_dir.path().join("copied").join(&long_name);
+
+        // Create source file
+        fs::write(&src_file, "content with long filename").unwrap();
+
+        // Copy directory - should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_dir.path().join("copied"), &options).unwrap();
+
+        // Verify the destination file exists and has correct content
+        assert!(dst_file.exists());
+        let content = fs::read_to_string(&dst_file).unwrap();
+        assert_eq!(content, "content with long filename");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_with_multiple_long_filenames() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create multiple files with long names
+        for i in 0..3 {
+            let long_name = format!("{}_{}.txt", "file".repeat(40), i);
+            let src_file = src_dir.path().join(&long_name);
+            fs::write(&src_file, format!("content {}", i)).unwrap();
+        }
+
+        // Copy directory
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_dir.path().join("copied"), &options).unwrap();
+
+        // Verify all files were copied
+        for i in 0..3 {
+            let long_name = format!("{}_{}.txt", "file".repeat(40), i);
+            let dst_file = dst_dir.path().join("copied").join(&long_name);
+            assert!(dst_file.exists(), "File {} should exist", long_name);
+            let content = fs::read_to_string(&dst_file).unwrap();
+            assert_eq!(content, format!("content {}", i));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_with_long_directory_name() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a directory with a long name
+        let long_dir_name = "subdir_".repeat(30);
+        let src_subdir = src_dir.path().join(&long_dir_name);
+        fs::create_dir(&src_subdir).unwrap();
+        fs::write(src_subdir.join("file.txt"), "content").unwrap();
+
+        // Copy directory
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_dir.path().join("copied"), &options).unwrap();
+
+        // Verify the subdirectory and file were copied
+        let dst_subdir = dst_dir.path().join("copied").join(&long_dir_name);
+        assert!(dst_subdir.exists());
+        assert!(dst_subdir.join("file.txt").exists());
+        let content = fs::read_to_string(dst_subdir.join("file.txt")).unwrap();
+        assert_eq!(content, "content");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_with_long_total_path() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create source with some files
+        fs::write(src_dir.path().join("file1.txt"), "content1").unwrap();
+        fs::create_dir(src_dir.path().join("subdir")).unwrap();
+        fs::write(src_dir.path().join("subdir/file2.txt"), "content2").unwrap();
+
+        // Create a deeply nested destination path to get total path > 500 chars
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..15 {
+            dst_path = dst_path.join(format!("level{:02}_{}", i, "x".repeat(20)));
+        }
+
+        // Verify total path is long (> 500 chars)
+        let total_path_len = dst_path.to_string_lossy().len();
+        assert!(total_path_len > 500, "Test path length: {}", total_path_len);
+
+        // Copy directory to the long path - should work with extended-length path support
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_path, &options).unwrap();
+
+        // Verify files were copied successfully
+        assert!(dst_path.join("file1.txt").exists());
+        assert!(dst_path.join("subdir/file2.txt").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_with_very_long_total_path() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create source directory structure
+        fs::write(src_dir.path().join("data.txt"), "test data").unwrap();
+        let src_subdir = src_dir.path().join("nested");
+        fs::create_dir(&src_subdir).unwrap();
+        fs::write(src_subdir.join("info.txt"), "nested info").unwrap();
+
+        // Create a very deeply nested destination path (> 1000 chars total)
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..30 {
+            dst_path = dst_path.join(format!("deep{:03}_{}", i, "y".repeat(25)));
+        }
+
+        // Verify total path is very long (> 1000 chars)
+        let total_path_len = dst_path.to_string_lossy().len();
+        assert!(
+            total_path_len > 1000,
+            "Test path length: {}",
+            total_path_len
+        );
+
+        // Copy directory to the very long path - should work with extended-length support
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_path, &options).unwrap();
+
+        // Verify the directory structure was copied correctly
+        assert!(dst_path.join("data.txt").exists());
+        assert!(dst_path.join("nested/info.txt").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_copy_dir_exceeds_max_path_limit() {
+        let src_dir = tempdir().unwrap();
+        let dst_base = tempdir().unwrap();
+
+        // Create source with files
+        fs::write(src_dir.path().join("test.txt"), "content").unwrap();
+
+        // Create destination path that exceeds old MAX_PATH (260 chars)
+        let mut dst_path = dst_base.path().to_path_buf();
+        for i in 0..10 {
+            dst_path = dst_path.join(format!("dir{:02}_{}", i, "z".repeat(20)));
+        }
+
+        // Verify total path exceeds MAX_PATH
+        let total_path_len = dst_path.to_string_lossy().len();
+        assert!(total_path_len > 260, "Test path length: {}", total_path_len);
+
+        // Copy directory - would fail without extended-length path support
+        let options = CopyOptions::default();
+        copy_dir(src_dir.path(), &dst_path, &options).unwrap();
+
+        // Verify copy succeeded
+        assert!(dst_path.join("test.txt").exists());
     }
 }
