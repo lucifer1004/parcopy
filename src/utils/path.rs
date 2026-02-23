@@ -48,7 +48,7 @@ pub fn to_extended_length_path(path: &Path) -> PathBuf {
     if path_str.starts_with(r"\\") {
         // Convert \\server\share\path to \\?\UNC\server\share\path
         let without_prefix = &path_str[2..];
-        let extended = format!(r"\\?\UNC{}", without_prefix);
+        let extended = format!(r"\\?\UNC\{}", without_prefix);
         return PathBuf::from(extended);
     }
 
@@ -145,11 +145,7 @@ mod tests {
         fn test_extended_length_absolute_path() {
             let path = Path::new(r"C:\test\path");
             let extended = to_extended_length_path(path);
-            assert_eq!(
-                extended.to_string_lossy(),
-                r"\\?\
-C:\test\path"
-            );
+            assert_eq!(extended.to_string_lossy(), r"\\?\C:\test\path");
         }
 
         #[test]

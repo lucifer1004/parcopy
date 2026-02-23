@@ -1429,7 +1429,7 @@ mod tests {
 
         // Create a deeply nested destination path to get total path > 500 chars
         let mut dst_path = dst_base.path().to_path_buf();
-        for i in 0..15 {
+        for i in 0..20 {
             dst_path = dst_path.join(format!("level{:02}_{}", i, "x".repeat(20)));
         }
 
