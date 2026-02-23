@@ -1,6 +1,7 @@
 # parcopy
 
 [![Crates.io](https://img.shields.io/crates/v/parcopy.svg)](https://crates.io/crates/parcopy)
+[![codecov](https://codecov.io/gh/lucifer1004/parcopy/graph/badge.svg)](https://codecov.io/gh/lucifer1004/parcopy)
 [![Documentation](https://docs.rs/parcopy/badge.svg)](https://docs.rs/parcopy/)
 [![License](https://img.shields.io/crates/l/parcopy.svg)](LICENSE-MIT)
 
