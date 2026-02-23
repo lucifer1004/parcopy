@@ -115,7 +115,9 @@ pub enum Error {
     ///
     /// Free up space on the destination and re-run the copy operation.
     /// Since successfully copied files were removed, this is a clean state.
-    #[error("No space left on device: {files_copied} of {total_files} files copied before failure, cleaned up {cleaned_up} files")]
+    #[error(
+        "No space left on device: {files_copied} of {total_files} files copied before failure, cleaned up {cleaned_up} files"
+    )]
     NoSpace {
         /// Number of files that were successfully copied before the error
         files_copied: usize,

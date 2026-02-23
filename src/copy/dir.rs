@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use super::file::copy_file_internal;
-use super::utils::{get_dir_key, is_escaping_symlink, is_symlink, symlink, DirEntry};
+use super::utils::{DirEntry, get_dir_key, is_escaping_symlink, is_symlink, symlink};
 
 /// Outcome of a single file copy operation (internal use)
 /// Used for tracking results in parallel copy operations
@@ -589,11 +589,11 @@ fn collect_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Error;
     use crate::CopyBuilder;
+    use crate::error::Error;
     use std::fs;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tempfile::tempdir;
 
     #[test]

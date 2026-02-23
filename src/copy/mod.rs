@@ -10,5 +10,5 @@ mod reflink;
 mod utils;
 
 // Re-export public API
-pub use dir::{copy_dir, CopyStats};
+pub use dir::{CopyStats, copy_dir};
 pub use file::copy_file;

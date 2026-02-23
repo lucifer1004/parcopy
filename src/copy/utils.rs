@@ -5,7 +5,7 @@
 //! and platform-specific utilities.
 
 use crate::utils::path::safe_path;
-use filetime::{set_file_times, FileTime};
+use filetime::{FileTime, set_file_times};
 use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;

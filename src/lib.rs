@@ -127,10 +127,10 @@ mod progress;
 mod win_attrs;
 
 pub use builder::CopyBuilder;
-pub use copy::{copy_dir, copy_file, CopyStats};
-pub use error::{is_no_space_error, Error, Result};
+pub use copy::{CopyStats, copy_dir, copy_file};
+pub use error::{Error, Result, is_no_space_error};
 pub use options::{CopyOptions, OnConflict};
 
 #[cfg(feature = "progress")]
 #[cfg_attr(docsrs, doc(cfg(feature = "progress")))]
-pub use progress::{create_progress_bar, ProgressCallback};
+pub use progress::{ProgressCallback, create_progress_bar};

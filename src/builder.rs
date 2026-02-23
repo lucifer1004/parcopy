@@ -46,12 +46,12 @@
 //! # Ok::<(), parcopy::Error>(())
 //! ```
 
-use crate::copy::{copy_dir, copy_file, CopyStats};
+use crate::copy::{CopyStats, copy_dir, copy_file};
 use crate::error::Result;
 use crate::options::{CopyOptions, OnConflict};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// A builder for configuring and executing copy operations.
 ///

@@ -2,14 +2,14 @@
 //!
 //! A fast, parallel file/directory copy command powered by parcopy.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
-use parcopy::{copy_dir, copy_file, CopyOptions, CopyStats, OnConflict};
+use parcopy::{CopyOptions, CopyStats, OnConflict, copy_dir, copy_file};
 use std::fs::Metadata;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// pcp - Fast parallel file copy

@@ -21,7 +21,7 @@ use std::path::Path;
 use crate::utils::path::to_extended_length_path;
 
 use windows::Win32::Storage::FileSystem::{
-    GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES,
+    FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES, GetFileAttributesW, SetFileAttributesW,
 };
 
 // INVALID_FILE_ATTRIBUTES is defined in WinBase.h as ((DWORD)-1), which equals 0xFFFFFFFF.

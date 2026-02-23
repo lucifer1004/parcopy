@@ -15,8 +15,8 @@
 //!     .with_max_depth(100);
 //! ```
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Behavior when destination file already exists.
 ///
