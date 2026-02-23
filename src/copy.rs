@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, Metadata};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
 use std::time::Instant;
 
 // =============================================================================
@@ -166,6 +166,39 @@ impl FileCopyResult {
             bytes: 0,
         }
     }
+}
+
+/// Outcome of a single file copy operation (internal use)
+/// Used for tracking results in parallel copy operations
+#[derive(Debug)]
+enum FileCopyOutcome {
+    /// File was successfully copied
+    Copied {
+        /// Source path
+        src: PathBuf,
+        /// Destination path (for potential cleanup)
+        dst: PathBuf,
+        /// Number of bytes copied
+        bytes: u64,
+    },
+    /// File was skipped (already existed)
+    Skipped {
+        /// Source path
+        src: PathBuf,
+        /// Destination path
+        dst: PathBuf,
+    },
+    /// Copy failed
+    Failed {
+        /// Source path
+        src: PathBuf,
+        /// Destination path
+        dst: PathBuf,
+        /// The error message
+        error_msg: String,
+        /// Whether this was a "no space" error
+        is_no_space: bool,
+    },
 }
 
 /// Efficiently copy file contents using the best available method.
@@ -632,41 +665,65 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
     let total_files = files.len();
     let total_symlinks = symlinks.len();
 
-    // Atomic counters for parallel statistics collection
-    let files_copied = AtomicU64::new(0);
-    let files_skipped = AtomicU64::new(0);
-    let bytes_copied = AtomicU64::new(0);
-    let fail_count = AtomicUsize::new(0);
-
     // Phase 3: Copy files in parallel with controlled concurrency
-    if total_files > 0 {
-        let do_copy = |files: &[(PathBuf, PathBuf)]| {
-            files.par_iter().for_each(|(src_file, dst_file)| {
-                // Check cancellation before starting each file
-                if options.is_cancelled() {
-                    return;
-                }
+    // Track copied files for potential cleanup on "no space" errors
+    let mut copied_paths: Vec<PathBuf> = Vec::new();
+    let mut files_copied: u64 = 0;
+    let mut files_skipped: u64 = 0;
+    let mut bytes_copied: u64 = 0;
+    let mut failed_count: usize = 0;
+    let mut no_space_error: Option<(PathBuf, String)> = None;
 
-                match copy_file_internal(src_file, dst_file, options) {
-                    Ok(result) => {
-                        if result.copied {
-                            files_copied.fetch_add(1, Ordering::Relaxed);
-                            bytes_copied.fetch_add(result.bytes, Ordering::Relaxed);
-                        } else {
-                            files_skipped.fetch_add(1, Ordering::Relaxed);
+    if total_files > 0 {
+        let do_copy = |files: &[(PathBuf, PathBuf)]| -> Vec<FileCopyOutcome> {
+            files
+                .par_iter()
+                .map(|(src_file, dst_file)| {
+                    // Check cancellation before starting each file
+                    if options.is_cancelled() {
+                        return FileCopyOutcome::Skipped {
+                            src: src_file.clone(),
+                            dst: dst_file.clone(),
+                        };
+                    }
+
+                    match copy_file_internal(src_file, dst_file, options) {
+                        Ok(result) => {
+                            if result.copied {
+                                FileCopyOutcome::Copied {
+                                    src: src_file.clone(),
+                                    dst: dst_file.clone(),
+                                    bytes: result.bytes,
+                                }
+                            } else {
+                                FileCopyOutcome::Skipped {
+                                    src: src_file.clone(),
+                                    dst: dst_file.clone(),
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let is_no_space = match &e {
+                                Error::Io(io_err) => crate::is_no_space_error(io_err),
+                                Error::TempFile { source, .. } => crate::is_no_space_error(source),
+                                Error::Persist { source, .. } => crate::is_no_space_error(source),
+                                _ => false,
+                            };
+                            options.warn(&format!("Failed to copy {}: {}", src_file.display(), e));
+                            FileCopyOutcome::Failed {
+                                src: src_file.clone(),
+                                dst: dst_file.clone(),
+                                error_msg: e.to_string(),
+                                is_no_space,
+                            }
                         }
                     }
-                    Err(e) => {
-                        options.warn(&format!("Failed to copy {}: {}", src_file.display(), e));
-                        fail_count.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-            });
+                })
+                .collect()
         };
 
         // Use custom thread pool only if parallelism differs from default
-        // This avoids unnecessary pool creation overhead
-        if options.parallel != rayon::current_num_threads() {
+        let outcomes = if options.parallel != rayon::current_num_threads() {
             let custom_pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(options.parallel)
                 .build();
@@ -677,28 +734,91 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                     options.warn(&format!(
                         "Failed to create thread pool ({e}), using global pool"
                     ));
-                    do_copy(&files);
+                    do_copy(&files)
                 }
             }
         } else {
             // Use rayon's global pool directly
-            do_copy(&files);
+            do_copy(&files)
+        };
+
+        // Process outcomes
+        for outcome in outcomes {
+            match outcome {
+                FileCopyOutcome::Copied { src, dst, bytes } => {
+                    files_copied += 1;
+                    bytes_copied += bytes;
+                    copied_paths.push(dst.clone());
+                    options.verbose(&format!(
+                        "copied {} -> {} ({} bytes)",
+                        src.display(),
+                        dst.display(),
+                        bytes
+                    ));
+                }
+                FileCopyOutcome::Skipped { src, dst } => {
+                    files_skipped += 1;
+                    options.verbose(&format!(
+                        "skipped {} -> {} (already exists)",
+                        src.display(),
+                        dst.display()
+                    ));
+                }
+                FileCopyOutcome::Failed {
+                    src,
+                    dst,
+                    error_msg,
+                    is_no_space,
+                } => {
+                    failed_count += 1;
+                    options.verbose(&format!(
+                        "failed {} -> {}: {}",
+                        src.display(),
+                        dst.display(),
+                        error_msg
+                    ));
+                    if is_no_space && no_space_error.is_none() {
+                        no_space_error = Some((dst, error_msg));
+                    }
+                }
+            }
         }
 
         // Check cancellation after parallel copy completes
         if options.is_cancelled() {
             return Err(Error::Cancelled {
-                files_copied: files_copied.load(Ordering::Relaxed),
-                bytes_copied: bytes_copied.load(Ordering::Relaxed),
-                files_skipped: files_skipped.load(Ordering::Relaxed),
+                files_copied,
+                bytes_copied,
+                files_skipped,
                 dirs_created,
             });
         }
 
-        let failed = fail_count.load(Ordering::Relaxed);
-        if failed > 0 {
+        // Handle "no space" error - clean up copied files
+        if let Some((failed_path, _)) = &no_space_error {
+            let mut cleaned_up = 0usize;
+            for path in &copied_paths {
+                if let Err(e) = fs::remove_file(path) {
+                    options.warn(&format!("Failed to clean up {}: {}", path.display(), e));
+                } else {
+                    cleaned_up += 1;
+                }
+            }
+
+            return Err(Error::NoSpace {
+                files_copied: files_copied as usize,
+                bytes_copied,
+                failed_files: failed_count,
+                total_files,
+                cleaned_up,
+                path: failed_path.clone(),
+            });
+        }
+
+        // Handle other partial copy failures
+        if failed_count > 0 {
             return Err(Error::PartialCopy {
-                failed,
+                failed: failed_count,
                 total: total_files,
             });
         }
@@ -714,9 +834,9 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
         for (src_link, dst_link) in &symlinks {
             if options.is_cancelled() {
                 return Err(Error::Cancelled {
-                    files_copied: files_copied.load(Ordering::Relaxed),
-                    bytes_copied: bytes_copied.load(Ordering::Relaxed),
-                    files_skipped: files_skipped.load(Ordering::Relaxed),
+                    files_copied,
+                    bytes_copied,
+                    files_skipped,
                     dirs_created,
                 });
             }
@@ -814,12 +934,12 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
     }
 
     Ok(CopyStats {
-        files_copied: files_copied.load(Ordering::Relaxed),
-        files_skipped: files_skipped.load(Ordering::Relaxed),
+        files_copied,
+        files_skipped,
         symlinks_copied,
         symlinks_skipped,
         dirs_created,
-        bytes_copied: bytes_copied.load(Ordering::Relaxed),
+        bytes_copied,
         duration: start_time.elapsed(),
     })
 }
@@ -925,6 +1045,7 @@ fn collect_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CopyBuilder;
     use std::fs;
     use tempfile::tempdir;
 
@@ -2279,5 +2400,106 @@ mod tests {
             }
             Err(e) => panic!("Expected Ok, got {:?}", e),
         }
+    }
+
+    #[test]
+    fn test_verbose_copied_files() {
+        use std::sync::Mutex;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create source files
+        fs::write(src_dir.path().join("file1.txt"), "content1").unwrap();
+        fs::write(src_dir.path().join("file2.txt"), "content2").unwrap();
+
+        // Track verbose messages
+        static VERBOSE_MESSAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn verbose_handler(msg: &str) {
+            VERBOSE_MESSAGES.lock().unwrap().push(msg.to_string());
+        }
+
+        // Clear previous messages
+        VERBOSE_MESSAGES.lock().unwrap().clear();
+
+        let options = CopyOptions::default().with_verbose_handler(verbose_handler);
+        let dst = dst_dir.path().join("copied");
+        copy_dir(src_dir.path(), &dst, &options).unwrap();
+
+        let messages = VERBOSE_MESSAGES.lock().unwrap();
+        assert_eq!(messages.len(), 2);
+
+        // Check that messages contain expected content
+        for msg in messages.iter() {
+            assert!(msg.starts_with("copied "));
+            assert!(msg.contains(" -> "));
+            assert!(msg.contains(" bytes"));
+        }
+    }
+
+    #[test]
+    fn test_verbose_skipped_files() {
+        use std::sync::Mutex;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create source files
+        fs::write(src_dir.path().join("file1.txt"), "content1").unwrap();
+
+        // Create destination file that already exists
+        let dst = dst_dir.path().join("copied");
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(dst.join("file1.txt"), "existing content").unwrap();
+
+        // Track verbose messages
+        static VERBOSE_MESSAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn verbose_handler(msg: &str) {
+            VERBOSE_MESSAGES.lock().unwrap().push(msg.to_string());
+        }
+
+        // Clear previous messages
+        VERBOSE_MESSAGES.lock().unwrap().clear();
+
+        let options = CopyOptions::default().with_verbose_handler(verbose_handler);
+        copy_dir(src_dir.path(), &dst, &options).unwrap();
+
+        let messages = VERBOSE_MESSAGES.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+
+        // Check that message indicates skipped
+        assert!(messages[0].starts_with("skipped "));
+        assert!(messages[0].contains(" -> "));
+        assert!(messages[0].contains("already exists"));
+    }
+
+    #[test]
+    fn test_verbose_with_builder() {
+        use std::sync::Mutex;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        fs::write(src_dir.path().join("test.txt"), "hello").unwrap();
+
+        // Track verbose messages
+        static VERBOSE_MESSAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn verbose_handler(msg: &str) {
+            VERBOSE_MESSAGES.lock().unwrap().push(msg.to_string());
+        }
+
+        // Clear previous messages
+        VERBOSE_MESSAGES.lock().unwrap().clear();
+
+        let stats = CopyBuilder::new(src_dir.path(), dst_dir.path().join("dst"))
+            .verbose(verbose_handler)
+            .run()
+            .unwrap();
+
+        assert_eq!(stats.files_copied, 1);
+
+        let messages = VERBOSE_MESSAGES.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].starts_with("copied "));
     }
 }

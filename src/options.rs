@@ -182,6 +182,15 @@ pub struct CopyOptions {
     /// Otherwise, warnings are silently ignored.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub warn_handler: Option<fn(&str)>,
+
+    /// Callback for verbose output (optional)
+    ///
+    /// When set, detailed information about each file operation is reported.
+    /// This includes: copied files, skipped files, and failures with source paths.
+    ///
+    /// This is useful for debugging or when users want to see progress details.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub verbose_handler: Option<fn(&str)>,
 }
 
 impl Default for CopyOptions {
@@ -200,6 +209,7 @@ impl Default for CopyOptions {
             preserve_windows_attributes: true,
             cancel_token: None,
             warn_handler: None,
+            verbose_handler: None,
         }
     }
 }
@@ -209,6 +219,27 @@ impl CopyOptions {
     #[must_use]
     pub fn with_warn_handler(mut self, handler: fn(&str)) -> Self {
         self.warn_handler = Some(handler);
+        self
+    }
+
+    /// Create options with a verbose output handler
+    ///
+    /// When set, detailed information about each file operation is reported:
+    /// - Copied files with source and destination paths
+    /// - Skipped files
+    /// - Failed files with error messages (uses the `src` field for source path)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyOptions;
+    ///
+    /// let options = CopyOptions::default()
+    ///     .with_verbose_handler(|msg| println!("[verbose] {}", msg));
+    /// ```
+    #[must_use]
+    pub fn with_verbose_handler(mut self, handler: fn(&str)) -> Self {
+        self.verbose_handler = Some(handler);
         self
     }
 
@@ -320,6 +351,18 @@ impl CopyOptions {
         } else {
             #[cfg(feature = "tracing")]
             tracing::warn!("{}", msg);
+        }
+    }
+
+    /// Output verbose information if a verbose handler is set.
+    ///
+    /// This is used internally to report detailed file operation status.
+    pub(crate) fn verbose(&self, msg: &str) {
+        if let Some(handler) = self.verbose_handler {
+            handler(msg);
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::info!("{}", msg);
         }
     }
 }

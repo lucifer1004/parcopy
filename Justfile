@@ -8,3 +8,7 @@ pre-commit:
 [windows]
 pre-commit:
     if (Get-Command prek -ErrorAction SilentlyContinue) { prek run --all-files } else { pre-commit run --all-files }
+
+# Test coverage (summary)
+cov:
+    cargo llvm-cov --summary-only

@@ -369,6 +369,29 @@ impl CopyBuilder {
         self
     }
 
+    /// Enable verbose output for detailed file operation information.
+    ///
+    /// The handler is called with messages for each file operation:
+    /// - Copied files (src -> dst, bytes)
+    /// - Skipped files
+    /// - Failed files with error messages
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use parcopy::CopyBuilder;
+    ///
+    /// let stats = CopyBuilder::new("src", "dst")
+    ///     .verbose(|msg| println!("{}", msg))
+    ///     .run()?;
+    /// # Ok::<(), parcopy::Error>(())
+    /// ```
+    #[must_use]
+    pub fn verbose(mut self, handler: fn(&str)) -> Self {
+        self.options = self.options.with_verbose_handler(handler);
+        self
+    }
+
     /// Get a reference to the current options.
     ///
     /// Useful for inspection or passing to other functions.
