@@ -39,14 +39,14 @@ A production-grade library for copying files and directories with safety guarant
 
 ```toml
 [dependencies]
-parcopy = "0.1"
+parcopy = "0.2"
 ```
 
 ### Optional Features
 
 ```toml
 [dependencies]
-parcopy = { version = "0.1", features = ["progress", "reflink"] }
+parcopy = { version = "0.2", features = ["progress", "reflink"] }
 ```
 
 | Feature    | Description                              |
@@ -245,7 +245,7 @@ For large files, the `reflink` feature provides instant copy-on-write on support
 
 ```toml
 [dependencies]
-parcopy = { version = "0.1", features = ["reflink"] }
+parcopy = { version = "0.2", features = ["reflink"] }
 ```
 
 ## CLI Tool

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [v0.2.0] - 2026-02-23
+
 ### Added
 
 - "No space left on device" error detection and cleanup
