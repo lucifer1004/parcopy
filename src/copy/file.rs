@@ -12,7 +12,7 @@ use std::path::Path;
 
 #[cfg(all(feature = "reflink", any(target_os = "linux", target_os = "macos")))]
 use super::reflink;
-use super::utils::{copy_file_contents, is_source_newer, preserve_timestamps, remove_existing};
+use super::utils::{copy_file_contents, is_source_newer, preserve_timestamps};
 
 /// Result of a single file copy operation (internal use)
 #[derive(Debug, Clone, Copy)]
@@ -97,12 +97,16 @@ pub(crate) fn copy_file_internal(
                     if !is_source_newer(&src_meta, &dst_meta) {
                         return Ok(FileCopyResult::skipped());
                     }
-                    // Source is newer - remove existing and continue
-                    remove_existing(dst, &dst_meta)?;
+                    // Source is newer, but can't overwrite a directory with a file
+                    if dst_meta.is_dir() {
+                        return Err(Error::IsADirectory(dst.to_path_buf()));
+                    }
                 }
                 OnConflict::Overwrite => {
-                    // Remove existing file/symlink/dir before copying
-                    remove_existing(dst, &dst_meta)?;
+                    // Can't overwrite a directory with a file
+                    if dst_meta.is_dir() {
+                        return Err(Error::IsADirectory(dst.to_path_buf()));
+                    }
                 }
             }
         }
@@ -317,6 +321,8 @@ mod tests {
 
     #[test]
     fn test_copy_file_overwrite_dir_with_file() {
+        // Test that overwriting a directory with a file is NOT allowed
+        // This prevents accidental data loss
         let src_dir = tempdir().unwrap();
         let dst_dir = tempdir().unwrap();
 
@@ -327,11 +333,19 @@ mod tests {
         fs::create_dir(&dst_file).unwrap();
 
         let options = CopyOptions::default().with_on_conflict(OnConflict::Overwrite);
-        let copied = copy_file(&src_file, &dst_file, &options).unwrap();
+        let result = copy_file(&src_file, &dst_file, &options);
 
-        assert!(copied);
-        assert!(dst_file.is_file());
-        assert_eq!(fs::read_to_string(&dst_file).unwrap(), "file content");
+        // Should return IsADirectory error
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::IsADirectory(path) => {
+                assert_eq!(path, dst_file);
+            }
+            e => panic!("Expected IsADirectory error, got: {:?}", e),
+        }
+
+        // Directory should still exist (not deleted)
+        assert!(dst_file.is_dir());
     }
 
     #[cfg(unix)]

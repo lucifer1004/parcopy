@@ -19,3 +19,6 @@ clap.workspace = true
 indicatif.workspace = true
 anyhow.workspace = true
 ctrlc = "3"
+
+[lints]
+workspace = true

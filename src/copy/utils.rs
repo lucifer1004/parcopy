@@ -4,7 +4,6 @@
 //! copy operations, including symlink handling, timestamp preservation,
 //! and platform-specific utilities.
 
-use crate::utils::path::safe_path;
 use filetime::{FileTime, set_file_times};
 use std::fs::{self, Metadata};
 use std::io;
@@ -186,23 +185,6 @@ pub(crate) fn preserve_timestamps(src_meta: &Metadata, dst: &Path) -> io::Result
     set_file_times(dst, atime, mtime)
 }
 
-/// Remove an existing file, symlink, or directory at the given path
-///
-/// Uses extended-length path format on Windows to support long paths.
-#[inline]
-pub(crate) fn remove_existing(path: &Path, meta: &Metadata) -> io::Result<()> {
-    // Convert to extended-length path format on Windows for long path support
-    let safe_path = safe_path(path);
-    let ft = meta.file_type();
-    if ft.is_symlink() || ft.is_file() {
-        fs::remove_file(&safe_path)
-    } else if ft.is_dir() {
-        fs::remove_dir_all(&safe_path)
-    } else {
-        Ok(())
-    }
-}
-
 // =============================================================================
 // Tests
 // =============================================================================
@@ -259,31 +241,6 @@ mod tests {
         // file2 was created after file1, so file2 is newer
         assert!(is_source_newer(&meta2, &meta1));
         assert!(!is_source_newer(&meta1, &meta2));
-    }
-
-    #[test]
-    fn test_remove_existing_file() {
-        let dir = tempdir().unwrap();
-        let file = dir.path().join("file.txt");
-        fs::write(&file, "content").unwrap();
-
-        let meta = fs::metadata(&file).unwrap();
-        assert!(file.exists());
-        remove_existing(&file, &meta).unwrap();
-        assert!(!file.exists());
-    }
-
-    #[test]
-    fn test_remove_existing_dir() {
-        let dir = tempdir().unwrap();
-        let subdir = dir.path().join("subdir");
-        fs::create_dir(&subdir).unwrap();
-        fs::write(subdir.join("file.txt"), "content").unwrap();
-
-        let meta = fs::metadata(&subdir).unwrap();
-        assert!(subdir.exists());
-        remove_existing(&subdir, &meta).unwrap();
-        assert!(!subdir.exists());
     }
 
     #[test]

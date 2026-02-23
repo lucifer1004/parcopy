@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-02-24
+
+### Changed
+
+- **BREAKING**: Removed cleanup logic on "no space" errors
+  - Files copied before a "no space" error are now retained instead of being deleted
+  - Enables resumable copy operations when combined with `OnConflict::Skip` (the default)
+  - Re-running the same copy command will skip already-copied files and continue from where it left off
+  - `Error::NoSpace` field changed from `cleaned_up: usize` to `remaining: usize`
+  - Error message now shows remaining files and suggests re-running to resume
+
+- **BREAKING**: Disallowed overwriting directories with files
+  - Prevents accidental data loss from recursive directory deletion
+  - Returns `Error::IsADirectory` when attempting to overwrite a directory with a file
+  - Previously, `OnConflict::Overwrite` would delete the entire directory tree
+
+- Improved atomic file operations
+  - File overwrite now uses atomic `persist()` instead of delete-then-create pattern
+  - Eliminates window where neither old nor new file exists on failure
+  - Works for overwriting existing files and symlinks
+
 ## [v0.2.1] - 2026-02-23
 
 ### Fixed

@@ -3,7 +3,7 @@ members = [".", "cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -12,12 +12,16 @@ repository = "https://github.com/lucifer1004/parcopy"
 [workspace.dependencies]
 # Internal crates
 # NOTE: Keep version in sync with [workspace.package].version above
-parcopy = { version = "0.2.0", path = "." }
+parcopy = { version = "0.3.0", path = "." }
 
 # Shared dependencies
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.18"
 anyhow = "1"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 
 [package]
 name = "parcopy"
@@ -78,3 +82,6 @@ full = ["progress", "tracing", "serde", "reflink"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

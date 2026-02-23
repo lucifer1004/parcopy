@@ -171,18 +171,19 @@ fn main() -> Result<()> {
     // Create progress bar
     let pb = if !args.quiet {
         let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .unwrap(),
-        );
-        pb.enable_steady_tick(Duration::from_millis(100));
-        if sources_with_meta.len() == 1 {
-            pb.set_message(format!("Copying {}...", sources_with_meta[0].0.display()));
+        let style = ProgressStyle::default_spinner().template("{spinner:.green} {msg}");
+        if let Ok(style) = style {
+            pb.set_style(style);
+            pb.enable_steady_tick(Duration::from_millis(100));
+            if sources_with_meta.len() == 1 {
+                pb.set_message(format!("Copying {}...", sources_with_meta[0].0.display()));
+            } else {
+                pb.set_message(format!("Copying {} items...", sources_with_meta.len()));
+            }
+            Some(pb)
         } else {
-            pb.set_message(format!("Copying {} items...", sources_with_meta.len()));
+            None
         }
-        Some(pb)
     } else {
         None
     };
@@ -236,11 +237,9 @@ fn main() -> Result<()> {
 /// 2. `pcp SOURCE... DIRECTORY` - multiple sources to directory
 /// 3. `pcp -t DIRECTORY SOURCE...` - explicit target directory
 fn resolve_sources_and_dest(args: &Args) -> Result<(Vec<PathBuf>, PathBuf)> {
+    // args.sources is guaranteed by clap's `required = true`
     if let Some(ref target_dir) = args.target_directory {
         // -t DIRECTORY mode: all args are sources
-        if args.sources.is_empty() {
-            bail!("No source files specified");
-        }
         if !target_dir.is_dir() && target_dir.exists() {
             bail!("Target is not a directory: {}", target_dir.display());
         }
@@ -259,8 +258,9 @@ fn resolve_sources_and_dest(args: &Args) -> Result<(Vec<PathBuf>, PathBuf)> {
     } else {
         // Multiple arguments: SOURCE... DIRECTORY
         // Last argument must be the destination directory
-        let mut sources = args.sources.clone();
-        let dest = sources.pop().unwrap();
+        // At this point, sources.len() >= 3, so split_at is safe
+        let (sources_slice, dest_slice) = args.sources.split_at(args.sources.len() - 1);
+        let dest = &dest_slice[0];
 
         if !dest.is_dir() && dest.exists() {
             bail!(
@@ -269,7 +269,7 @@ fn resolve_sources_and_dest(args: &Args) -> Result<(Vec<PathBuf>, PathBuf)> {
             );
         }
 
-        Ok((sources, dest))
+        Ok((sources_slice.to_vec(), dest.clone()))
     }
 }
 

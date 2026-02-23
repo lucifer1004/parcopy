@@ -108,15 +108,16 @@ pub enum Error {
     /// No space left on device during copy operation
     ///
     /// This error indicates that the destination storage ran out of space.
-    /// Files that were successfully copied before the error occurred have
-    /// been cleaned up (deleted) to avoid leaving partial data.
+    /// Files that were successfully copied are retained at the destination.
+    /// This allows for resumable copy operations.
     ///
     /// # Recovery
     ///
     /// Free up space on the destination and re-run the copy operation.
-    /// Since successfully copied files were removed, this is a clean state.
+    /// Successfully copied files will be skipped by default (OnConflict::Skip),
+    /// and the copy will resume from where it left off.
     #[error(
-        "No space left on device: {files_copied} of {total_files} files copied before failure, cleaned up {cleaned_up} files"
+        "No space left on device: {files_copied} of {total_files} files copied, {remaining} remaining. Re-run to resume."
     )]
     NoSpace {
         /// Number of files that were successfully copied before the error
@@ -127,8 +128,8 @@ pub enum Error {
         failed_files: usize,
         /// Total number of files attempted
         total_files: usize,
-        /// Number of files that were cleaned up after the error
-        cleaned_up: usize,
+        /// Number of files remaining (not yet copied)
+        remaining: usize,
         /// The path where the no-space error occurred
         path: PathBuf,
     },
@@ -237,12 +238,12 @@ mod tests {
             bytes_copied: 1024,
             failed_files: 3,
             total_files: 8,
-            cleaned_up: 5,
+            remaining: 3,
             path: PathBuf::from("/dest/file.txt"),
         };
         let msg = format!("{}", error);
         assert!(msg.contains("No space left on device"));
-        assert!(msg.contains("5 of 8 files copied before failure"));
-        assert!(msg.contains("cleaned up 5 files"));
+        assert!(msg.contains("5 of 8 files copied"));
+        assert!(msg.contains("3 remaining"));
     }
 }

@@ -203,8 +203,6 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
     let total_symlinks = symlinks.len();
 
     // Phase 3: Copy files in parallel with controlled concurrency
-    // Track copied files for potential cleanup on "no space" errors
-    let mut copied_paths: Vec<PathBuf> = Vec::new();
     let mut files_copied: u64 = 0;
     let mut files_skipped: u64 = 0;
     let mut bytes_copied: u64 = 0;
@@ -285,7 +283,6 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
                 FileCopyOutcome::Copied { src, dst, bytes } => {
                     files_copied += 1;
                     bytes_copied += bytes;
-                    copied_paths.push(dst.clone());
                     options.verbose(&format!(
                         "copied {} -> {} ({} bytes)",
                         src.display(),
@@ -331,23 +328,14 @@ pub fn copy_dir(src: &Path, dst: &Path, options: &CopyOptions) -> Result<CopySta
             });
         }
 
-        // Handle "no space" error - clean up copied files
+        // Handle "no space" error - retain progress for resumable copy
         if let Some((failed_path, _)) = &no_space_error {
-            let mut cleaned_up = 0usize;
-            for path in &copied_paths {
-                if let Err(e) = fs::remove_file(path) {
-                    options.warn(&format!("Failed to clean up {}: {}", path.display(), e));
-                } else {
-                    cleaned_up += 1;
-                }
-            }
-
             return Err(Error::NoSpace {
                 files_copied: files_copied as usize,
                 bytes_copied,
                 failed_files: failed_count,
                 total_files,
-                cleaned_up,
+                remaining: total_files - files_copied as usize,
                 path: failed_path.clone(),
             });
         }
