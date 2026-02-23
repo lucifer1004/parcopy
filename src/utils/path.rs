@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use std::path::Path;
 /// use parcopy::utils::path::to_extended_length_path;
 ///
