@@ -128,8 +128,8 @@ pub(crate) fn copy_file_internal(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                // Default file mode 0o666 minus typical umask 0o022 = 0o644
-                let _ = fs::set_permissions(dst, fs::Permissions::from_mode(0o644));
+                // Set 0o666 which will automatically apply umask
+                let _ = fs::set_permissions(dst, fs::Permissions::from_mode(0o666));
             }
         }
 
@@ -149,10 +149,36 @@ pub(crate) fn copy_file_internal(
 
     // Create temp file in destination directory for atomic rename
     let dst_parent = dst.parent().unwrap_or(Path::new("."));
-    let temp_file = tempfile::NamedTempFile::new_in(dst_parent).map_err(|e| Error::TempFile {
-        path: dst_parent.to_path_buf(),
-        source: e,
-    })?;
+
+    // Create temp file with appropriate permissions
+    let temp_file = if options.preserve_permissions {
+        // Use default tempfile creation (0o600), will set source permissions later
+        tempfile::NamedTempFile::new_in(dst_parent).map_err(|e| Error::TempFile {
+            path: dst_parent.to_path_buf(),
+            source: e,
+        })?
+    } else {
+        // Use tempfile::Builder to set default permissions at creation time
+        // This avoids an extra chmod syscall
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tempfile::Builder::new()
+                .permissions(fs::Permissions::from_mode(0o666))
+                .tempfile_in(dst_parent)
+                .map_err(|e| Error::TempFile {
+                    path: dst_parent.to_path_buf(),
+                    source: e,
+                })?
+        }
+        #[cfg(not(unix))]
+        {
+            tempfile::NamedTempFile::new_in(dst_parent).map_err(|e| Error::TempFile {
+                path: dst_parent.to_path_buf(),
+                source: e,
+            })?
+        }
+    };
 
     // Copy file contents using best available method (zero-copy on Linux)
     let bytes_copied = copy_file_contents(&src_file, temp_file.as_file(), file_len)?;
@@ -162,7 +188,7 @@ pub(crate) fn copy_file_internal(
         temp_file.as_file().sync_all()?;
     }
 
-    // Preserve permissions
+    // Set source file permissions if preserving
     if options.preserve_permissions {
         let perms = src_meta.permissions();
         fs::set_permissions(temp_file.path(), perms)?;
