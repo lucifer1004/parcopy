@@ -22,10 +22,14 @@
 //!
 //! If run without privileges, tests will be gracefully skipped.
 
+#[cfg(unix)]
 use assert_cmd::cargo::cargo_bin_cmd;
+#[cfg(unix)]
 use predicates::prelude::*;
+#[cfg(unix)]
 use std::fs;
 use std::path::Path;
+#[cfg(unix)]
 use tempfile::TempDir;
 
 /// Check if we have root/admin privileges.
@@ -371,6 +375,7 @@ mod macos_tests {
 // =============================================================================
 
 /// Count all files in a directory recursively.
+#[cfg(unix)]
 fn count_files_recursive(dir: &Path) -> usize {
     if !dir.exists() {
         return 0;

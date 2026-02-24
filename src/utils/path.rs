@@ -35,9 +35,6 @@ use std::path::{Path, PathBuf};
 /// ```
 #[cfg(windows)]
 pub fn to_extended_length_path(path: &Path) -> PathBuf {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-
     // Check if the path is already in extended-length format
     let path_str = path.as_os_str().to_string_lossy();
     if path_str.starts_with(r"\\?\") {
@@ -45,9 +42,8 @@ pub fn to_extended_length_path(path: &Path) -> PathBuf {
     }
 
     // Check if it's a UNC path (starts with \\)
-    if path_str.starts_with(r"\\") {
+    if let Some(without_prefix) = path_str.strip_prefix(r"\\") {
         // Convert \\server\share\path to \\?\UNC\server\share\path
-        let without_prefix = &path_str[2..];
         let extended = format!(r"\\?\UNC\{}", without_prefix);
         return PathBuf::from(extended);
     }
@@ -93,6 +89,7 @@ pub fn to_extended_length_path(path: &Path) -> PathBuf {
 ///
 /// On non-Windows platforms, this always returns `false`.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn is_long_path(path: &Path) -> bool {
     // Windows MAX_PATH is 260, but we use 200 as a conservative threshold
     // to account for temp file names (~30 chars) and safety margin

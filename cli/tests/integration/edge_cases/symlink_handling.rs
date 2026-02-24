@@ -7,8 +7,11 @@
 //! - Symlink loop detection
 //! - Dangling symlinks (pointing to non-existent targets)
 
+#[cfg(unix)]
 use assert_cmd::cargo::cargo_bin_cmd;
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -339,8 +342,6 @@ mod unix_tests {
 
 #[cfg(not(unix))]
 mod non_unix_tests {
-    use super::*;
-
     #[test]
     fn test_symlinks_not_supported() {
         // On non-Unix systems, symlinks may not be fully supported

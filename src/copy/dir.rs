@@ -587,7 +587,9 @@ mod tests {
     use crate::error::Error;
     use std::fs;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::Ordering;
+    #[cfg(unix)]
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
     use tempfile::tempdir;
 
     #[test]

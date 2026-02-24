@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.3.0] - 2026-02-24
+## [0.3.0] - 2026-02-25
 
 ### Added
 
@@ -22,6 +22,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implement RFC-0001 C-LIBRARY-API with plan/execute APIs, policy/runtime separation, and typed events (WI-2026-02-24-006)
 - Implement RFC-0001 C-ERROR-MODEL with stable error_code mapping and typed enum errors across public APIs (WI-2026-02-24-006)
 - Implement RFC-0001 C-COMPATIBILITY requirements in docs and release migration notes (WI-2026-02-24-006)
+- Test for multi-branch symlink to same directory under -L (WI-2026-02-24-010)
+
+### Changed
+
+- Amend RFC-0001 C-ERROR-MODEL to define code metadata as canonical SSOT (WI-2026-02-24-007)
+- Remove markdown error-code reference artifact and associated sync-test overhead (WI-2026-02-24-007)
+- **BREAKING**: Removed cleanup logic on "no space" errors
+  - Files copied before a "no space" error are now retained instead of being deleted
+  - Enables resumable copy operations when combined with `OnConflict::Skip` (the default)
+  - Re-running the same copy command will skip already-copied files and continue from where it left off
+  - `Error::NoSpace` field changed from `cleaned_up: usize` to `remaining: usize`
+  - Error message now shows remaining files and suggests re-running to resume
+- **BREAKING**: Disallowed overwriting directories with files
+  - Prevents accidental data loss from recursive directory deletion
+  - Returns `Error::IsADirectory` when attempting to overwrite a directory with a file
+  - Previously, `OnConflict::Overwrite` would delete the entire directory tree
+- Improved atomic file operations
+  - File overwrite now uses atomic `persist()` instead of delete-then-create pattern
+  - Eliminates window where neither old nor new file exists on failure
+  - Works for overwriting existing files and symlinks
 
 ### Fixed
 
@@ -34,27 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove mandatory compat-cp profile requirement from RFC-0001 (WI-2026-02-24-004)
 - Specify execution-mode JSON/JSONL schema alongside planning schema (WI-2026-02-24-004)
 - Keep --explain optional while preserving effective-config output guarantees (WI-2026-02-24-004)
+- no_space resume test uses sequential copy to avoid parallel race on tiny tmpfs (WI-2026-02-24-008)
+- Windows nonexistent-path test accepts os error 123 message (WI-2026-02-24-008)
+- Stack-based ancestor detection replaces global visited set (WI-2026-02-24-010)
 
-### Changed
-
-- **BREAKING**: Removed cleanup logic on "no space" errors
-  - Files copied before a "no space" error are now retained instead of being deleted
-  - Enables resumable copy operations when combined with `OnConflict::Skip` (the default)
-  - Re-running the same copy command will skip already-copied files and continue from where it left off
-  - `Error::NoSpace` field changed from `cleaned_up: usize` to `remaining: usize`
-  - Error message now shows remaining files and suggests re-running to resume
-
-- **BREAKING**: Disallowed overwriting directories with files
-  - Prevents accidental data loss from recursive directory deletion
-  - Returns `Error::IsADirectory` when attempting to overwrite a directory with a file
-  - Previously, `OnConflict::Overwrite` would delete the entire directory tree
-
-- Improved atomic file operations
-  - File overwrite now uses atomic `persist()` instead of delete-then-create pattern
-  - Eliminates window where neither old nor new file exists on failure
-  - Works for overwriting existing files and symlinks
-
-## [v0.2.1] - 2026-02-23
+## [0.2.1] - 2026-02-23
 
 ### Fixed
 
@@ -74,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Overwrite scenarios with long filenames
     - All tests properly validate extended-length path syntax support
 
-## [v0.2.0] - 2026-02-23
+## [0.2.0] - 2026-02-23
 
 ### Added
 
@@ -94,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - MSRV bumped to 1.83.0
 
-## [v0.1.2] - 2026-02-12
+## [0.1.2] - 2026-02-12
 
 ### Added
 
@@ -108,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Re-run with same command to resume (uses default `Skip` strategy)
   - Fixes [#2](https://github.com/lucifer1004/parcopy/issues/2)
 
-## [v0.1.1] - 2026-02-09
+## [0.1.1] - 2026-02-09
 
 ### Added
 
@@ -118,7 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New CLI flag `--no-win-attrs` in `pcp`
   - Fixes [#1](https://github.com/lucifer1004/parcopy/issues/1)
 
-## [v0.1.0] - 2026-01-24
+## [0.1.0] - 2026-01-24
 
 ### Added
 
