@@ -395,10 +395,12 @@ fn test_special_filenames() {
     let src = TempDir::new().unwrap();
     let dst = TempDir::new().unwrap();
 
-    // Create files with special names
+    // Create files with special names.
+    // Note: tabs are invalid in Windows filenames, so only create that case on non-Windows.
     fs::write(src.path().join("file with spaces.txt"), "content1").unwrap();
-    fs::write(src.path().join("file\twith\ttabs.txt"), "content2").unwrap();
-    fs::write(src.path().join("file'with'quotes.txt"), "content3").unwrap();
+    fs::write(src.path().join("file'with'quotes.txt"), "content2").unwrap();
+    #[cfg(not(windows))]
+    fs::write(src.path().join("file\twith\ttabs.txt"), "content3").unwrap();
 
     // Note: We avoid truly problematic names like:
     // - Newlines (might break command line)
@@ -418,8 +420,9 @@ fn test_special_filenames() {
     let copied_base = dst.path().join("copied");
 
     assert!(copied_base.join("file with spaces.txt").exists());
-    assert!(copied_base.join("file\twith\ttabs.txt").exists());
     assert!(copied_base.join("file'with'quotes.txt").exists());
+    #[cfg(not(windows))]
+    assert!(copied_base.join("file\twith\ttabs.txt").exists());
 }
 
 /// Test behavior comparison with cp for file type conflicts.

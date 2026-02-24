@@ -14,7 +14,7 @@
 //! **Option 2: Use Docker**
 //! ```bash
 //! docker run --privileged -v $(pwd):/workspace -w /workspace rust:latest \
-//!   cargo test --package parcopy-cli --test integration no_space
+//!   cargo test --package parcopy-cli --test no_space
 //! ```
 //!
 //! **Option 3: GitHub Actions**
@@ -40,6 +40,7 @@ fn has_root_privileges() -> bool {
 }
 
 /// Check if a command exists on the system.
+#[cfg(target_os = "macos")]
 fn command_exists(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
@@ -161,9 +162,9 @@ mod linux_tests {
         let mount_point = TempDir::new().expect("Failed to create temp dir");
         let src = TempDir::new().expect("Failed to create temp dir");
 
-        // Create 2MB tmpfs
+        // Create 1MB tmpfs so the first pass is guaranteed to run out of space.
         let mount_result = StdCommand::new("mount")
-            .args(["-t", "tmpfs", "-o", "size=2M", "tmpfs"])
+            .args(["-t", "tmpfs", "-o", "size=1M", "tmpfs"])
             .arg(mount_point.path())
             .output();
 
@@ -176,7 +177,7 @@ mod linux_tests {
             let _ = StdCommand::new("umount").arg(path).output();
         });
 
-        // Create source files (will partially fill 2MB)
+        // Create source files (exceeds 1MB tmpfs, so first pass must fail partway).
         for i in 0..10 {
             fs::write(
                 src.path().join(format!("file{:02}.txt", i)),
@@ -185,19 +186,32 @@ mod linux_tests {
             .expect("Failed to write file");
         }
 
-        // First copy: should partially succeed
-        let mut cmd = cargo_bin_cmd!("pcp");
-        let _ = cmd
-            .arg("-r")
-            .arg(src.path())
-            .arg(mount_point.path().join("dst"))
-            .assert();
+        let src_name = src
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("Source temp dir should have a valid name")
+            .to_string();
+        let target_dir = mount_point.path().join("dst").join(&src_name);
 
-        // Record which files were actually copied (may not be sequential due to parallel copying)
-        let dst_path = mount_point.path().join("dst");
-        let copied_files: Vec<String> = if dst_path.exists() {
-            fs::read_dir(&dst_path)
-                .expect("Failed to read dst directory")
+        // First copy: should partially succeed and fail with no-space.
+        let mut cmd = cargo_bin_cmd!("pcp");
+        cmd.arg("-r")
+            .arg(src.path())
+            .arg("-t")
+            .arg(mount_point.path().join("dst"))
+            .assert()
+            .failure()
+            .stderr(
+                predicate::str::contains("No space left on device")
+                    .or(predicate::str::contains("NoSpace"))
+                    .or(predicate::str::contains("space")),
+            );
+
+        // Record which files were actually copied (may not be sequential due to parallel copying).
+        let copied_files: Vec<String> = if target_dir.exists() {
+            fs::read_dir(&target_dir)
+                .expect("Failed to read target directory")
                 .filter_map(|e| e.ok())
                 .filter(|e| e.path().is_file())
                 .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
@@ -206,38 +220,38 @@ mod linux_tests {
             Vec::new()
         };
         let first_count = copied_files.len();
+        assert!(
+            first_count > 0 && first_count < 10,
+            "First pass should copy some, but not all files (copied {first_count})"
+        );
 
-        // Increase space (remount with larger size)
+        // Increase space (remount with larger size).
         let _ = StdCommand::new("umount").arg(mount_point.path()).output();
         let _ = StdCommand::new("mount")
             .args(["-t", "tmpfs", "-o", "size=5M", "tmpfs"])
             .arg(mount_point.path())
             .output();
 
-        // Re-create the dst directory structure (it was in tmpfs)
-        fs::create_dir_all(mount_point.path().join("dst")).ok();
+        // Re-create the target directory structure (it was in tmpfs).
+        fs::create_dir_all(&target_dir).ok();
 
-        // Simulate previous partial copy (for resume to work)
-        // In real scenario, these files would already exist
-        // Note: We recreate the actual files that were copied, not assuming sequential order
+        // Simulate previous partial copy (for resume to work).
+        // In real scenario, these files would already exist.
         for filename in &copied_files {
-            fs::write(
-                mount_point.path().join("dst").join(filename),
-                "x".repeat(150_000),
-            )
-            .ok();
+            fs::write(target_dir.join(filename), "x".repeat(150_000)).ok();
         }
 
-        // Second copy: should skip existing and copy remaining
+        // Second copy: should skip existing files and copy remaining files.
         let mut cmd = cargo_bin_cmd!("pcp");
         cmd.arg("-r")
             .arg(src.path())
+            .arg("-t")
             .arg(mount_point.path().join("dst"))
             .assert()
             .success();
 
-        // Now all files should exist
-        let final_count = count_files_recursive(&mount_point.path().join("dst"));
+        // Now all files should exist in the resolved target dir.
+        let final_count = count_files_recursive(&target_dir);
         assert_eq!(final_count, 10, "All files should be copied after resume");
     }
 }
@@ -378,6 +392,6 @@ fn test_privilege_check() {
     } else {
         eprintln!("Running without root privileges - some tests will be skipped");
         eprintln!("To run all tests:");
-        eprintln!("  sudo cargo test --package parcopy-cli --test integration no_space");
+        eprintln!("  sudo cargo test --package parcopy-cli --test no_space");
     }
 }
