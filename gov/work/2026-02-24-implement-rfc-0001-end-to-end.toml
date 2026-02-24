@@ -35,24 +35,42 @@ content = """
 - Implemented baseline C-ERROR-MODEL work: stable `ErrorCode` taxonomy, typed CLI error enum, and SSOT-generated error-code reference sync checks.
 - Validated baseline with fmt/check/clippy/tests."""
 
+[[content.journal]]
+date = "2026-02-24"
+content = """
+2026-02-24
+- Implemented CLI profile system (`modern` default, `safe`, `fast`) with profile-driven defaults and explicit flag override behavior.
+- Added `--plan` (with `--dry-run` alias) and `--output human|json|jsonl` contracts for both plan and execute modes.
+- Added stable machine-readable payloads with `schema_version=1.0`, `mode`, `effective_config`, and item records.
+- Added integration tests for plan/output/profile contracts and ran full CLI test suite + clippy/check."""
+
+[[content.journal]]
+date = "2026-02-24"
+content = """
+2026-02-24
+- Implemented library-level planning/execution API in `parcopy` (`plan_copy`, `execute_plan`).
+- Introduced explicit policy/runtime separation (`CopyPolicy`, `RuntimeOptions`) and structured result model (`CopyPlan`, `CopyReport`, `ItemReport`).
+- Added typed event stream (`CopyEvent`, `EventHandler`) with planned/started/completed/skipped/failed variants.
+- Added unit tests for plan classification, failed-item reporting, and typed event emission; verified workspace with check/clippy/tests."""
+
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-PROFILES with built-in modern/safe/fast profiles and effective_config surfacing"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-PLAN-OUTPUT with --plan and stable human/json/jsonl schema contracts"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-LIBRARY-API with plan/execute APIs, policy/runtime separation, and typed events"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-ERROR-MODEL with stable error_code mapping and typed enum errors across public APIs"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]

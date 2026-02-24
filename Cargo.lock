@@ -625,6 +625,7 @@ dependencies = [
  "predicates",
  "rstest",
  "scopeguard",
+ "serde_json",
  "serial_test",
  "tempfile",
  "thiserror",

@@ -8,9 +8,10 @@ use parcopy::{
     CopyOptions, CopyStats, Error as ParcopyError, ErrorCode, OnConflict, copy_dir, copy_file,
     is_no_space_error,
 };
+use serde_json::{Value, json};
 use std::fs::Metadata;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -49,8 +50,16 @@ struct Args {
     jobs: usize,
 
     /// Conflict resolution strategy
-    #[arg(short = 'c', long, value_enum, default_value = "skip")]
-    on_conflict: ConflictStrategy,
+    #[arg(short = 'c', long, value_enum)]
+    on_conflict: Option<ConflictStrategy>,
+
+    /// Profile-driven defaults
+    #[arg(long, value_enum, default_value = "modern")]
+    profile: ProfileName,
+
+    /// Output format
+    #[arg(long, value_enum, default_value = "human")]
+    output: OutputMode,
 
     /// Disable progress bar
     #[arg(short = 'q', long)]
@@ -87,8 +96,8 @@ struct Args {
     max_depth: Option<usize>,
 
     /// Print what would be copied without actually copying
-    #[arg(short = 'n', long)]
-    dry_run: bool,
+    #[arg(short = 'n', long = "plan", alias = "dry-run")]
+    plan: bool,
 
     /// Verbose output
     #[arg(short = 'v', long)]
@@ -107,6 +116,17 @@ enum ConflictStrategy {
     Update,
 }
 
+impl ConflictStrategy {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Skip => "skip",
+            Self::Overwrite => "overwrite",
+            Self::Error => "error",
+            Self::Update => "update_newer",
+        }
+    }
+}
+
 impl From<ConflictStrategy> for OnConflict {
     fn from(s: ConflictStrategy) -> Self {
         match s {
@@ -115,6 +135,79 @@ impl From<ConflictStrategy> for OnConflict {
             ConflictStrategy::Error => OnConflict::Error,
             ConflictStrategy::Update => OnConflict::UpdateNewer,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ProfileName {
+    Modern,
+    Safe,
+    Fast,
+}
+
+impl ProfileName {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Modern => "modern",
+            Self::Safe => "safe",
+            Self::Fast => "fast",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+enum OutputMode {
+    Human,
+    Json,
+    Jsonl,
+}
+
+impl OutputMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Human => "human",
+            Self::Json => "json",
+            Self::Jsonl => "jsonl",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProfileDefaults {
+    on_conflict: ConflictStrategy,
+    preserve_timestamps: bool,
+    preserve_permissions: bool,
+    fsync: bool,
+    preserve_symlinks: bool,
+    verbose: bool,
+}
+
+fn profile_defaults(profile: ProfileName) -> ProfileDefaults {
+    match profile {
+        ProfileName::Modern => ProfileDefaults {
+            on_conflict: ConflictStrategy::Skip,
+            preserve_timestamps: true,
+            preserve_permissions: true,
+            fsync: true,
+            preserve_symlinks: true,
+            verbose: false,
+        },
+        ProfileName::Safe => ProfileDefaults {
+            on_conflict: ConflictStrategy::Error,
+            preserve_timestamps: true,
+            preserve_permissions: true,
+            fsync: true,
+            preserve_symlinks: true,
+            verbose: true,
+        },
+        ProfileName::Fast => ProfileDefaults {
+            on_conflict: ConflictStrategy::Skip,
+            preserve_timestamps: false,
+            preserve_permissions: false,
+            fsync: false,
+            preserve_symlinks: true,
+            verbose: false,
+        },
     }
 }
 
@@ -151,6 +244,9 @@ enum CliError {
 
     #[error("Failed to copy file: {path}: {source}")]
     CopyFile { path: PathBuf, source: ParcopyError },
+
+    #[error("Failed to serialize JSON output: {source}")]
+    JsonSerialize { source: serde_json::Error },
 }
 
 impl CliError {
@@ -166,7 +262,175 @@ impl CliError {
                 io_error_code(source)
             }
             Self::CopyDirectory { source, .. } | Self::CopyFile { source, .. } => source.code(),
+            Self::JsonSerialize { .. } => ErrorCode::Internal,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EffectiveConfig {
+    profile: ProfileName,
+    conflict_policy: ConflictStrategy,
+    preserve_timestamps: bool,
+    preserve_permissions: bool,
+    fsync: bool,
+    symlink_mode: &'static str,
+    output_mode: OutputMode,
+    verbose: bool,
+}
+
+impl EffectiveConfig {
+    fn to_json_value(&self) -> Value {
+        json!({
+            "profile": self.profile.as_str(),
+            "conflict_policy": self.conflict_policy.as_str(),
+            "preserve_timestamps": self.preserve_timestamps,
+            "preserve_permissions": self.preserve_permissions,
+            "fsync": self.fsync,
+            "symlink_mode": self.symlink_mode,
+            "output_mode": self.output_mode.as_str(),
+        })
+    }
+
+    fn print_human_stderr(&self) {
+        eprintln!("Effective configuration:");
+        eprintln!("  profile: {}", self.profile.as_str());
+        eprintln!("  conflict_policy: {}", self.conflict_policy.as_str());
+        eprintln!("  preserve_timestamps: {}", self.preserve_timestamps);
+        eprintln!("  preserve_permissions: {}", self.preserve_permissions);
+        eprintln!("  fsync: {}", self.fsync);
+        eprintln!("  symlink_mode: {}", self.symlink_mode);
+        eprintln!("  output_mode: {}", self.output_mode.as_str());
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PlanItem {
+    source: PathBuf,
+    destination: PathBuf,
+    source_size: u64,
+    action: &'static str,
+    reason: &'static str,
+}
+
+impl PlanItem {
+    fn to_json_value(&self) -> Value {
+        json!({
+            "source": display_path(&self.source),
+            "destination": display_path(&self.destination),
+            "action": self.action,
+            "reason": self.reason,
+        })
+    }
+
+    fn to_jsonl_record(&self) -> Value {
+        json!({
+            "schema_version": "1.0",
+            "record_type": "plan_item",
+            "source": display_path(&self.source),
+            "destination": display_path(&self.destination),
+            "action": self.action,
+            "reason": self.reason,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ExecuteItem {
+    source: String,
+    destination: String,
+    outcome: &'static str,
+    bytes_copied: Option<u64>,
+    error_code: Option<String>,
+    error_message: Option<String>,
+}
+
+impl ExecuteItem {
+    fn copied(source: &Path, destination: &Path, bytes_copied: u64) -> Self {
+        Self {
+            source: display_path(source),
+            destination: display_path(destination),
+            outcome: "copied",
+            bytes_copied: Some(bytes_copied),
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    fn skipped(source: &Path, destination: &Path) -> Self {
+        Self {
+            source: display_path(source),
+            destination: display_path(destination),
+            outcome: "skipped",
+            bytes_copied: None,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    fn failed(
+        source: impl Into<String>,
+        destination: impl Into<String>,
+        code: ErrorCode,
+        message: String,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            destination: destination.into(),
+            outcome: "failed",
+            bytes_copied: None,
+            error_code: Some(code.as_str().to_owned()),
+            error_message: Some(message),
+        }
+    }
+
+    fn to_json_value(&self) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("source".to_owned(), Value::String(self.source.clone()));
+        obj.insert(
+            "destination".to_owned(),
+            Value::String(self.destination.clone()),
+        );
+        obj.insert("outcome".to_owned(), Value::String(self.outcome.to_owned()));
+
+        if let Some(bytes) = self.bytes_copied {
+            obj.insert("bytes_copied".to_owned(), Value::Number(bytes.into()));
+        }
+        if let Some(ref code) = self.error_code {
+            obj.insert("error_code".to_owned(), Value::String(code.clone()));
+        }
+        if let Some(ref message) = self.error_message {
+            obj.insert("error_message".to_owned(), Value::String(message.clone()));
+        }
+
+        Value::Object(obj)
+    }
+
+    fn to_jsonl_record(&self) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("schema_version".to_owned(), Value::String("1.0".to_owned()));
+        obj.insert(
+            "record_type".to_owned(),
+            Value::String("execute_item".to_owned()),
+        );
+        obj.insert("source".to_owned(), Value::String(self.source.clone()));
+        obj.insert(
+            "destination".to_owned(),
+            Value::String(self.destination.clone()),
+        );
+        obj.insert("outcome".to_owned(), Value::String(self.outcome.to_owned()));
+
+        if let Some(bytes) = self.bytes_copied {
+            obj.insert("bytes_copied".to_owned(), Value::Number(bytes.into()));
+        }
+        if let Some(ref code) = self.error_code {
+            obj.insert("error_code".to_owned(), Value::String(code.clone()));
+        }
+        if let Some(ref message) = self.error_message {
+            obj.insert("error_message".to_owned(), Value::String(message.clone()));
+        }
+
+        Value::Object(obj)
     }
 }
 
@@ -230,10 +494,8 @@ fn main() {
 fn run() -> CliResult<()> {
     let args = Args::parse();
 
-    // Determine sources and destination based on arguments
     let (sources, dest) = resolve_sources_and_dest(&args)?;
 
-    // Validate sources and collect metadata (single stat per source, reused later)
     let mut sources_with_meta: Vec<(PathBuf, Metadata)> = Vec::with_capacity(sources.len());
     for src in sources {
         match src.metadata() {
@@ -252,22 +514,16 @@ fn run() -> CliResult<()> {
         }
     }
 
-    // Build options
-    let mut options = build_options(&args);
+    let (mut options, effective_config) = build_options_and_effective_config(&args);
 
-    // Install two-stage Ctrl+C handler:
-    //   First press:  graceful cancel (finish in-flight files, then stop)
-    //   Second press: hard abort (immediate process exit)
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let cancel_clone = cancel.clone();
         ctrlc::set_handler(move || {
             if cancel_clone.load(Ordering::Relaxed) {
-                // Second Ctrl+C — hard abort
                 eprintln!("\nForce quit.");
                 std::process::exit(130);
             }
-            // First Ctrl+C — graceful cancel
             cancel_clone.store(true, Ordering::Relaxed);
             eprintln!(
                 "\nCancelling... finishing in-flight files. Press Ctrl+C again to abort immediately."
@@ -277,14 +533,18 @@ fn run() -> CliResult<()> {
     }
     options = options.with_cancel_token(cancel);
 
-    // Dry run mode
-    if args.dry_run {
-        print_dry_run(&sources_with_meta, &dest, &args);
+    let plan_items = build_plan_items(&sources_with_meta, &dest, options.on_conflict)?;
+
+    if effective_config.output_mode == OutputMode::Human && effective_config.verbose {
+        effective_config.print_human_stderr();
+    }
+
+    if args.plan {
+        emit_plan_output(effective_config.output_mode, &effective_config, &plan_items)?;
         return Ok(());
     }
 
-    // Create progress bar
-    let pb = if !args.quiet {
+    let pb = if effective_config.output_mode == OutputMode::Human && !args.quiet {
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner().template("{spinner:.green} {msg}");
         if let Ok(style) = style {
@@ -303,34 +563,50 @@ fn run() -> CliResult<()> {
         None
     };
 
-    // Perform the copy
     let start_time = Instant::now();
-    let mut stats = copy_sources(&sources_with_meta, &dest, &options)?;
+    let copy_result = copy_sources(&sources_with_meta, &dest, &options);
     let total_duration = start_time.elapsed();
 
-    // Finish progress bar
     if let Some(pb) = pb {
         pb.finish_and_clear();
     }
 
-    // Use total wall-clock time for multi-source copies
-    if sources_with_meta.len() > 1 {
-        stats.duration = total_duration;
+    match copy_result {
+        Ok(mut stats) => {
+            if sources_with_meta.len() > 1 {
+                stats.duration = total_duration;
+            }
+
+            if effective_config.output_mode == OutputMode::Human {
+                print_stats(&stats, effective_config.verbose);
+            } else {
+                let execute_items = build_execute_items_from_success_plan(&plan_items);
+                emit_execute_output(
+                    effective_config.output_mode,
+                    &effective_config,
+                    &execute_items,
+                )?;
+            }
+            Ok(())
+        }
+        Err(error) => {
+            if cancellation_stats(&error).is_none()
+                && effective_config.output_mode != OutputMode::Human
+            {
+                let failure_item = build_execute_failure_item(&error, &plan_items);
+                emit_execute_output(
+                    effective_config.output_mode,
+                    &effective_config,
+                    &[failure_item],
+                )?;
+            }
+            Err(error)
+        }
     }
-    print_stats(&stats, args.verbose);
-    Ok(())
 }
 
-/// Resolve sources and destination from command-line arguments.
-///
-/// Handles three usage patterns:
-/// 1. `pcp SOURCE DEST` - single source to destination
-/// 2. `pcp SOURCE... DIRECTORY` - multiple sources to directory
-/// 3. `pcp -t DIRECTORY SOURCE...` - explicit target directory
 fn resolve_sources_and_dest(args: &Args) -> CliResult<(Vec<PathBuf>, PathBuf)> {
-    // args.sources is guaranteed by clap's `required = true`
     if let Some(ref target_dir) = args.target_directory {
-        // -t DIRECTORY mode: all args are sources
         if !target_dir.is_dir() && target_dir.exists() {
             return Err(CliError::TargetNotDirectory {
                 path: target_dir.clone(),
@@ -338,19 +614,14 @@ fn resolve_sources_and_dest(args: &Args) -> CliResult<(Vec<PathBuf>, PathBuf)> {
         }
         Ok((args.sources.clone(), target_dir.clone()))
     } else if args.sources.len() == 1 {
-        // Single argument - this is an error, we need at least source and dest
         Err(CliError::MissingDestinationOperand {
             operand: args.sources[0].clone(),
         })
     } else if args.sources.len() == 2 {
-        // Two arguments: SOURCE DEST
         let src = args.sources[0].clone();
         let dest = args.sources[1].clone();
         Ok((vec![src], dest))
     } else {
-        // Multiple arguments: SOURCE... DIRECTORY
-        // Last argument must be the destination directory
-        // At this point, sources.len() >= 3, so split_at is safe
         let (sources_slice, dest_slice) = args.sources.split_at(args.sources.len() - 1);
         let dest = &dest_slice[0];
 
@@ -362,60 +633,292 @@ fn resolve_sources_and_dest(args: &Args) -> CliResult<(Vec<PathBuf>, PathBuf)> {
     }
 }
 
-/// Build CopyOptions from command-line arguments
-fn build_options(args: &Args) -> CopyOptions {
+fn build_options_and_effective_config(args: &Args) -> (CopyOptions, EffectiveConfig) {
+    let defaults = profile_defaults(args.profile);
+
+    let conflict = args.on_conflict.unwrap_or(defaults.on_conflict);
+
+    let mut preserve_timestamps = defaults.preserve_timestamps;
+    if args.no_times {
+        preserve_timestamps = false;
+    }
+
+    let mut preserve_permissions = defaults.preserve_permissions;
+    if args.no_perms {
+        preserve_permissions = false;
+    }
+
+    let mut fsync = defaults.fsync;
+    if args.no_sync {
+        fsync = false;
+    }
+
+    let mut preserve_symlinks = defaults.preserve_symlinks;
+    if args.follow_symlinks {
+        preserve_symlinks = false;
+    }
+
+    let mut verbose = defaults.verbose;
+    if args.verbose {
+        verbose = true;
+    }
+
     let mut options = CopyOptions::default()
         .with_parallel(args.jobs)
-        .with_on_conflict(args.on_conflict.into());
+        .with_on_conflict(conflict.into());
 
-    if args.no_times {
+    if !preserve_timestamps {
         options = options.without_timestamps();
     }
-    if args.no_perms {
+    if !preserve_permissions {
         options.preserve_permissions = false;
         options.preserve_dir_permissions = false;
     }
     if args.no_win_attrs {
         options = options.without_windows_attributes();
     }
-    if args.no_sync {
+    if !fsync {
         options = options.without_fsync();
     }
     if args.block_escaping_symlinks {
         options = options.with_block_escaping_symlinks();
     }
-    if args.follow_symlinks {
+    if !preserve_symlinks {
         options.preserve_symlinks = false;
     }
     if let Some(depth) = args.max_depth {
         options = options.with_max_depth(depth);
     }
 
-    // Verbose warning handler
-    if args.verbose {
+    if verbose && args.output == OutputMode::Human {
         options = options.with_warn_handler(|msg| {
             eprintln!("warning: {}", msg);
         });
     }
 
-    options
+    let effective_config = EffectiveConfig {
+        profile: args.profile,
+        conflict_policy: conflict,
+        preserve_timestamps,
+        preserve_permissions,
+        fsync,
+        symlink_mode: if preserve_symlinks {
+            "preserve"
+        } else {
+            "follow"
+        },
+        output_mode: args.output,
+        verbose,
+    };
+
+    (options, effective_config)
 }
 
-/// Print dry-run information
-fn print_dry_run(sources_with_meta: &[(PathBuf, Metadata)], dest: &std::path::Path, args: &Args) {
-    println!("Dry run - would copy:");
-    for (src, meta) in sources_with_meta {
-        // Reuse pre-fetched metadata (no stat call)
-        let src_type = if meta.is_dir() { "directory" } else { "file" };
-        println!("  {} {} -> {}", src_type, src.display(), dest.display());
+fn build_plan_items(
+    sources_with_meta: &[(PathBuf, Metadata)],
+    dest: &PathBuf,
+    on_conflict: OnConflict,
+) -> CliResult<Vec<PlanItem>> {
+    let mut items = Vec::with_capacity(sources_with_meta.len());
+    let (dest_is_dir, mut dest_created) = match dest.metadata() {
+        Ok(m) => (m.is_dir(), true),
+        Err(_) => (false, false),
+    };
+    let multi_source = sources_with_meta.len() > 1;
+
+    for (src, src_meta) in sources_with_meta {
+        let actual_dest = resolve_actual_destination_path(
+            src,
+            dest,
+            dest_is_dir,
+            multi_source,
+            &mut dest_created,
+            false,
+        )?;
+
+        let (action, reason) = classify_plan_action(src_meta, &actual_dest, on_conflict);
+
+        items.push(PlanItem {
+            source: src.clone(),
+            destination: actual_dest,
+            source_size: src_meta.len(),
+            action,
+            reason,
+        });
     }
-    println!("Options:");
-    println!("  Jobs: {}", args.jobs);
-    println!("  On conflict: {:?}", args.on_conflict);
+
+    Ok(items)
 }
 
-/// Copy multiple sources to destination, aggregating stats
-/// Takes sources with pre-fetched metadata to avoid redundant stat calls.
+fn classify_plan_action(
+    source_meta: &Metadata,
+    destination: &Path,
+    on_conflict: OnConflict,
+) -> (&'static str, &'static str) {
+    if !destination.exists() {
+        return ("copy", "not_exists");
+    }
+
+    match on_conflict {
+        OnConflict::Skip => ("skip", "exists"),
+        OnConflict::Overwrite => ("overwrite", "exists"),
+        OnConflict::Error => ("error", "exists"),
+        OnConflict::UpdateNewer => {
+            let destination_meta = match destination.metadata() {
+                Ok(meta) => meta,
+                Err(_) => return ("copy", "exists"),
+            };
+
+            let src_mtime = source_meta.modified();
+            let dst_mtime = destination_meta.modified();
+
+            match (src_mtime, dst_mtime) {
+                (Ok(src), Ok(dst)) if src <= dst => ("skip", "newer_or_same"),
+                _ => ("copy", "exists"),
+            }
+        }
+    }
+}
+
+fn emit_plan_output(
+    output_mode: OutputMode,
+    effective_config: &EffectiveConfig,
+    items: &[PlanItem],
+) -> CliResult<()> {
+    match output_mode {
+        OutputMode::Human => {
+            println!("Plan ({} items):", items.len());
+            for item in items {
+                println!(
+                    "  {} {} -> {} ({})",
+                    item.action,
+                    item.source.display(),
+                    item.destination.display(),
+                    item.reason
+                );
+            }
+            Ok(())
+        }
+        OutputMode::Json => {
+            let payload = json!({
+                "schema_version": "1.0",
+                "mode": "plan",
+                "effective_config": effective_config.to_json_value(),
+                "items": items.iter().map(PlanItem::to_json_value).collect::<Vec<Value>>(),
+            });
+            print_json_value(&payload)
+        }
+        OutputMode::Jsonl => {
+            let effective_record = json!({
+                "schema_version": "1.0",
+                "record_type": "effective_config",
+                "mode": "plan",
+                "effective_config": effective_config.to_json_value(),
+            });
+            print_json_value(&effective_record)?;
+            for item in items {
+                print_json_value(&item.to_jsonl_record())?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn build_execute_items_from_success_plan(plan_items: &[PlanItem]) -> Vec<ExecuteItem> {
+    plan_items
+        .iter()
+        .map(|item| match item.action {
+            "skip" => ExecuteItem::skipped(&item.source, &item.destination),
+            _ => ExecuteItem::copied(&item.source, &item.destination, item.source_size),
+        })
+        .collect()
+}
+
+fn build_execute_failure_item(error: &CliError, plan_items: &[PlanItem]) -> ExecuteItem {
+    match error {
+        CliError::CopyDirectory { path, source } | CliError::CopyFile { path, source } => {
+            let destination = plan_items
+                .iter()
+                .find(|item| item.source == *path)
+                .map(|item| display_path(&item.destination))
+                .unwrap_or_default();
+            ExecuteItem::failed(
+                display_path(path),
+                destination,
+                source.code(),
+                source.to_string(),
+            )
+        }
+        _ => ExecuteItem::failed(
+            String::new(),
+            String::new(),
+            error.code(),
+            error.to_string(),
+        ),
+    }
+}
+
+fn emit_execute_output(
+    output_mode: OutputMode,
+    effective_config: &EffectiveConfig,
+    items: &[ExecuteItem],
+) -> CliResult<()> {
+    match output_mode {
+        OutputMode::Human => Ok(()),
+        OutputMode::Json => {
+            let payload = json!({
+                "schema_version": "1.0",
+                "mode": "execute",
+                "effective_config": effective_config.to_json_value(),
+                "items": items.iter().map(ExecuteItem::to_json_value).collect::<Vec<Value>>(),
+            });
+            print_json_value(&payload)
+        }
+        OutputMode::Jsonl => {
+            let effective_record = json!({
+                "schema_version": "1.0",
+                "record_type": "effective_config",
+                "mode": "execute",
+                "effective_config": effective_config.to_json_value(),
+            });
+            print_json_value(&effective_record)?;
+            for item in items {
+                print_json_value(&item.to_jsonl_record())?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn resolve_actual_destination_path(
+    src: &Path,
+    dest: &PathBuf,
+    dest_is_dir: bool,
+    multi_source: bool,
+    dest_created: &mut bool,
+    create_destination_dir: bool,
+) -> CliResult<PathBuf> {
+    if dest_is_dir || multi_source {
+        let filename = src
+            .file_name()
+            .ok_or_else(|| CliError::SourceHasNoFilename {
+                path: src.to_path_buf(),
+            })?;
+
+        if create_destination_dir && !*dest_created {
+            std::fs::create_dir_all(dest).map_err(|source| CliError::CreateDirectory {
+                path: dest.clone(),
+                source,
+            })?;
+            *dest_created = true;
+        }
+
+        Ok(dest.join(filename))
+    } else {
+        Ok(dest.clone())
+    }
+}
+
 fn copy_sources(
     sources_with_meta: &[(PathBuf, Metadata)],
     dest: &PathBuf,
@@ -424,7 +927,6 @@ fn copy_sources(
     let mut total_stats = CopyStats::default();
     let start_time = Instant::now();
 
-    // Check destination once (single stat call, avoid repeated checks in loop)
     let (dest_is_dir, mut dest_created) = match dest.metadata() {
         Ok(m) => (m.is_dir(), true),
         Err(_) => (false, false),
@@ -432,30 +934,17 @@ fn copy_sources(
     let multi_source = sources_with_meta.len() > 1;
 
     for (src, src_meta) in sources_with_meta {
-        // Reuse pre-fetched metadata (no stat call here)
         let is_dir = src_meta.is_dir();
         let file_size = src_meta.len();
 
-        // Determine actual destination path
-        let actual_dest = if dest_is_dir || multi_source {
-            // Copying into a directory - use source filename
-            let filename = src
-                .file_name()
-                .ok_or_else(|| CliError::SourceHasNoFilename { path: src.clone() })?;
-
-            // Create destination directory if it doesn't exist (for multi-source)
-            if !dest_created {
-                std::fs::create_dir_all(dest).map_err(|source| CliError::CreateDirectory {
-                    path: dest.clone(),
-                    source,
-                })?;
-                dest_created = true;
-            }
-
-            dest.join(filename)
-        } else {
-            dest.clone()
-        };
+        let actual_dest = resolve_actual_destination_path(
+            src,
+            dest,
+            dest_is_dir,
+            multi_source,
+            &mut dest_created,
+            true,
+        )?;
 
         if is_dir {
             let stats =
@@ -484,7 +973,6 @@ fn copy_sources(
     Ok(total_stats)
 }
 
-/// Merge two CopyStats
 fn merge_stats(mut a: CopyStats, b: CopyStats) -> CopyStats {
     a.files_copied += b.files_copied;
     a.files_skipped += b.files_skipped;
@@ -492,7 +980,6 @@ fn merge_stats(mut a: CopyStats, b: CopyStats) -> CopyStats {
     a.symlinks_skipped += b.symlinks_skipped;
     a.dirs_created += b.dirs_created;
     a.bytes_copied += b.bytes_copied;
-    // Duration is handled separately
     a
 }
 
@@ -509,7 +996,6 @@ fn print_stats(stats: &CopyStats, verbose: bool) {
         return;
     }
 
-    // Format bytes
     let bytes_str = format_bytes(stats.bytes_copied);
 
     if verbose {
@@ -525,7 +1011,6 @@ fn print_stats(stats: &CopyStats, verbose: bool) {
             println!("  Speed:          {}/s", format_bytes(speed as u64));
         }
     } else {
-        // Compact output
         let mut parts = vec![];
         if stats.files_copied > 0 {
             parts.push(format!("{} files", stats.files_copied));
@@ -543,6 +1028,17 @@ fn print_stats(stats: &CopyStats, verbose: bool) {
             println!("Copied {} ({})", parts.join(", "), bytes_str);
         }
     }
+}
+
+fn print_json_value(value: &Value) -> CliResult<()> {
+    let serialized =
+        serde_json::to_string(value).map_err(|source| CliError::JsonSerialize { source })?;
+    println!("{serialized}");
+    Ok(())
+}
+
+fn display_path(path: &Path) -> String {
+    path.display().to_string()
 }
 
 fn format_bytes(bytes: u64) -> String {

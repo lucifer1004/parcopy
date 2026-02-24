@@ -19,6 +19,7 @@ clap.workspace = true
 indicatif.workspace = true
 ctrlc = "3"
 thiserror = "2"
+serde_json = "1"
 
 [dev-dependencies]
 assert_cmd = "2"
@@ -48,6 +49,10 @@ path = "tests/integration/no_space.rs"
 [[test]]
 name = "edge_cases"
 path = "tests/integration/edge_cases.rs"
+
+[[test]]
+name = "plan_output"
+path = "tests/integration/plan_output.rs"
 
 [lints]
 workspace = true

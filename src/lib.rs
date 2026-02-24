@@ -118,6 +118,7 @@ mod builder;
 mod copy;
 mod error;
 mod options;
+mod plan_execute;
 mod utils;
 
 #[cfg(feature = "progress")]
@@ -133,6 +134,10 @@ pub use error::{
     render_error_code_reference_markdown,
 };
 pub use options::{CopyOptions, OnConflict};
+pub use plan_execute::{
+    CopyEvent, CopyPlan, CopyPolicy, CopyReport, EventHandler, ItemOutcome, ItemReport, PlanAction,
+    PlanReason, PlannedItem, PlannedItemKind, RuntimeOptions, execute_plan, plan_copy,
+};
 
 #[cfg(feature = "progress")]
 #[cfg_attr(docsrs, doc(cfg(feature = "progress")))]
