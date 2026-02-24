@@ -92,7 +92,7 @@ jobs:
         run: cargo build --workspace --all-features
 
       - name: Run no-space tests
-        run: cargo test --package parcopy-cli --test integration no_space -- --nocapture
+        run: cargo test --package parcopy-cli --test no_space -- --nocapture
         env:
           RUST_BACKTRACE: 1
 

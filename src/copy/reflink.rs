@@ -36,7 +36,7 @@ mod platform {
 
         // Check cache first
         {
-            let cache = REFLINK_CACHE.lock().unwrap();
+            let cache = REFLINK_CACHE.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(ref map) = *cache {
                 if let Some(&supported) = map.get(&dev_id) {
                     return supported;
@@ -49,7 +49,7 @@ mod platform {
 
         // Update cache
         {
-            let mut cache = REFLINK_CACHE.lock().unwrap();
+            let mut cache = REFLINK_CACHE.lock().unwrap_or_else(|e| e.into_inner());
             let map = cache.get_or_insert_with(HashMap::new);
             map.insert(dev_id, supported);
         }
