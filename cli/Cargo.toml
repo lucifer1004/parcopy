@@ -20,5 +20,34 @@ indicatif.workspace = true
 anyhow.workspace = true
 ctrlc = "3"
 
+[dev-dependencies]
+assert_cmd = "2"
+libc = "0.2"
+predicates = "3"
+rstest = "0.21"
+tempfile = "3"
+serial_test = "3"
+scopeguard = "1"
+
+[[test]]
+name = "basic"
+path = "tests/integration/basic.rs"
+
+[[test]]
+name = "resume"
+path = "tests/integration/resume.rs"
+
+[[test]]
+name = "error_handling"
+path = "tests/integration/error_handling.rs"
+
+[[test]]
+name = "no_space"
+path = "tests/integration/no_space.rs"
+
+[[test]]
+name = "edge_cases"
+path = "tests/integration/edge_cases.rs"
+
 [lints]
 workspace = true

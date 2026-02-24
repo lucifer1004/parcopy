@@ -766,8 +766,10 @@ mod tests {
         symlink(src_dir.path(), sub_dir.join("loop")).unwrap();
 
         // With preserve_symlinks: false, this would cause infinite recursion
-        let mut options = CopyOptions::default();
-        options.preserve_symlinks = false;
+        let options = CopyOptions {
+            preserve_symlinks: false,
+            ..Default::default()
+        };
 
         let result = copy_dir(src_dir.path(), &dst_dir.path().join("copied"), &options);
 
@@ -791,8 +793,10 @@ mod tests {
         fs::create_dir(&sub_dir).unwrap();
         symlink(&sub_dir, sub_dir.join("self_loop")).unwrap();
 
-        let mut options = CopyOptions::default();
-        options.preserve_symlinks = false;
+        let options = CopyOptions {
+            preserve_symlinks: false,
+            ..Default::default()
+        };
 
         let result = copy_dir(src_dir.path(), &dst_dir.path().join("copied"), &options);
 

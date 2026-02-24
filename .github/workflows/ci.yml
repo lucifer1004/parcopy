@@ -73,3 +73,32 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.85
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-features
+
+  test-no-space:
+    name: Test No-Space Scenarios
+    runs-on: ubuntu-latest
+    container:
+      image: rust:latest
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y pkg-config libfuse3-dev fuse3
+
+      - name: Build
+        run: cargo build --workspace --all-features
+
+      - name: Run no-space tests
+        run: cargo test --package parcopy-cli --test integration no_space -- --nocapture
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "No-space tests completed."
+          echo "These tests verify that files are retained after 'no space' errors,"
+          echo "enabling resumable copy operations."
