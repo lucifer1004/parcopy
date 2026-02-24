@@ -1,0 +1,44 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-002"
+title = "Address external review findings for RFC-0001"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Incorporate external review feedback into RFC-0001.
+
+Targets:
+- Make --plan JSON/JSONL schema strict and testable
+- Define explicit effective-config surfacing contract
+- Replace subjective compat-cp wording with objective baseline and behavior matrix
+- Remove ambiguous deprecation window for pre-1.0 releases"""
+
+[[content.acceptance_criteria]]
+text = "Make --plan JSON/JSONL contract fully testable with explicit schema and enums"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Remove ambiguous deprecation window and clarify pre-1.0 breaking-change policy"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Define where/how effective profile overrides are surfaced for human and machine outputs"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Define objective compat-cp baseline and required behavior matrix"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes after RFC-0001 review fixes"
+status = "done"
+category = "chore"

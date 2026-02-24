@@ -1,0 +1,41 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-001"
+title = "Define modern pcp API and CLI architecture"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Draft an RFC that defines a modern public contract for pcp.
+
+Scope:
+- CLI profiles and default behavior contracts
+- Planning mode and structured output contracts
+- Library plan/execute API and typed event model
+- Compatibility and migration rules for existing users
+
+Deliverable: RFC-0001 in draft/spec phase with normative clauses and rationale."""
+
+[[content.acceptance_criteria]]
+text = "Define profile-based CLI behavior for modern, compat-cp, safe, and fast modes"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Specify plan and structured output modes for machine-readable automation"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Specify library-level planner/executor API and typed event model"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes with the drafted RFC"
+status = "done"
+category = "chore"

@@ -1,0 +1,36 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-004"
+title = "Amend RFC-0001 for no-compat-layer and execution JSON output"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Apply product decisions to RFC-0001:
+- No compatibility layer requirement
+- --explain remains optional for now
+- Execution mode must support structured JSON/JSONL output in this RFC version"""
+
+[[content.acceptance_criteria]]
+text = "Remove mandatory compat-cp profile requirement from RFC-0001"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Specify execution-mode JSON/JSONL schema alongside planning schema"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Keep --explain optional while preserving effective-config output guarantees"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes after RFC-0001 product-decision amendments"
+status = "done"
+category = "chore"

@@ -1,0 +1,7 @@
+{
+  "clause_id": "C-NON-GOALS",
+  "title": "Non-Goals",
+  "kind": "informative",
+  "status": "active",
+  "text": "This RFC does not define every possible `cp` feature and does not attempt one-to-one option parity.\n\nOut of scope for this RFC:\n- Preserving all metadata classes supported by platform-specific `cp -p` variants (for example full ownership, ACL, and extended attributes parity).\n- Remote transfer semantics (for example `rsync`-style network synchronization).\n- Hard-link graph preservation semantics.\n\nThese may be specified in future RFCs if needed."
+}

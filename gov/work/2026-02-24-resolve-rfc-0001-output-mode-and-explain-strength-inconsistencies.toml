@@ -1,0 +1,33 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-003"
+title = "Resolve RFC-0001 output mode and explain-strength inconsistencies"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Apply targeted RFC-0001 wording fixes from latest external review.
+
+Scope:
+- Restrict JSON mode=plan invariant to --plan context only
+- Make C-PROFILES conditional on --explain implementation status
+- Keep C-COMPATIBILITY at SHOULD and eliminate normative mismatch"""
+
+[[content.acceptance_criteria]]
+text = "Scope JSON mode=plan requirement to planning context only"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Align --explain requirement strength across C-PROFILES and C-COMPATIBILITY"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes after RFC-0001 consistency fixes"
+status = "done"
+category = "chore"

@@ -1,0 +1,7 @@
+{
+  "clause_id": "C-SUMMARY",
+  "title": "Summary",
+  "kind": "informative",
+  "status": "active",
+  "text": "This RFC defines a modern API and CLI direction for `pcp` so it can function as a developer-facing replacement in the style of modern tools such as `fd`, `eza`, and `dust`.\n\n**Scope:**\n- CLI behavior model: profile-driven defaults, explicit planning mode, and structured output modes.\n- Library API model: separation of planning and execution, typed events, and stable reporting structures.\n- Compatibility and migration requirements for existing `pcp` users.\n\n**Rationale:**\n`pcp` already provides strong copy semantics (parallelism, atomic writes, resumability), but its user-facing interface is not yet optimized for discoverability, automation, and compatibility migration. This RFC standardizes the public contract needed to evolve the tool safely."
+}

@@ -1,0 +1,38 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-005"
+title = "Amend RFC-0001 with stable error codes and typed error enums"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Add explicit error-contract requirements to RFC-0001.
+
+Scope:
+- Introduce stable semantic error_code taxonomy
+- Require typed enum errors for public APIs (no anyhow/Box<dyn Error> contracts)
+- Align execution JSON failure payload with stable code and optional low-level detail"""
+
+[[content.acceptance_criteria]]
+text = "Define stable CLI error_code taxonomy and versioning rules"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Require public library APIs to return typed enum errors instead of anyhow"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Align execution JSON error payload with stable code and optional low-level detail"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes after RFC-0001 error-model amendments"
+status = "done"
+category = "chore"
