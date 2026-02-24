@@ -2,9 +2,10 @@
 schema = 1
 id = "WI-2026-02-24-006"
 title = "Implement RFC-0001 end-to-end"
-status = "active"
+status = "done"
 created = "2026-02-24"
 started = "2026-02-24"
+completed = "2026-02-24"
 refs = ["RFC-0001"]
 
 [content]
@@ -53,6 +54,14 @@ content = """
 - Added typed event stream (`CopyEvent`, `EventHandler`) with planned/started/completed/skipped/failed variants.
 - Added unit tests for plan classification, failed-item reporting, and typed event emission; verified workspace with check/clippy/tests."""
 
+[[content.journal]]
+date = "2026-02-24"
+content = """
+2026-02-24
+- Added canonical CLI behavior documentation at `docs/reference/cli-behavior.md`.
+- Added RFC-0001 migration notes at `docs/migrations/2026-02-rfc-0001-cli.md` and linked both from README.
+- Verified governance consistency with `govctl check`."""
+
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-PROFILES with built-in modern/safe/fast profiles and effective_config surfacing"
 status = "done"
@@ -75,10 +84,10 @@ category = "added"
 
 [[content.acceptance_criteria]]
 text = "Implement RFC-0001 C-COMPATIBILITY requirements in docs and release migration notes"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "Keep docs/render/tests/clippy/govctl check passing for all RFC-0001 implementation milestones"
-status = "pending"
+status = "done"
 category = "chore"

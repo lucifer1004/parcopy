@@ -258,9 +258,19 @@ cargo install --path cli
 
 # Usage
 pcp -r src/ dst/              # Recursive copy
-pcp --update-newer src/ dst/  # Incremental copy
+pcp -c update src/ dst/       # Incremental copy
 pcp -j 8 src/ dst/            # 8 parallel threads
+pcp --plan src/ dst/          # Plan only (no filesystem mutation)
+pcp --output json src/ dst/   # Machine-readable execution output
 ```
+
+### Canonical CLI Behavior
+
+RFC-0001 defines a canonical CLI behavior model for profiles, plan/execute modes,
+and output contracts:
+
+- Canonical behavior model: [`docs/reference/cli-behavior.md`](./docs/reference/cli-behavior.md)
+- Migration notes: [`docs/migrations/2026-02-rfc-0001-cli.md`](./docs/migrations/2026-02-rfc-0001-cli.md)
 
 ### Graceful Cancellation
 
