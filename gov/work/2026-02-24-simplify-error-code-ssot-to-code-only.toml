@@ -1,0 +1,41 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-007"
+title = "Simplify error-code SSOT to code-only"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Goal:
+- Make error-code metadata code-only SSOT and remove markdown synchronization overhead.
+
+Scope:
+- Keep `ErrorCode` + `ErrorCodeSpec` + `error_code_specs()` as canonical source.
+- Remove generated markdown artifact dependency and doc-sync test coupling.
+- Align RFC-0001 C-ERROR-MODEL text with code-only SSOT policy.
+
+Journal:
+- 2026-02-24: Updated RFC clause C-ERROR-MODEL to define code metadata as canonical SSOT; human-readable docs are optional and non-normative if generated.
+- 2026-02-24: Removed `docs/reference/error-codes.md`, removed markdown renderer export, and deleted sync-test overhead in `src/error.rs`.
+- 2026-02-24: Updated CLI behavior reference to point to in-code canonical definitions.
+- 2026-02-24: Verified with `cargo fmt --all`, `cargo check --workspace --all-features`, `cargo clippy --workspace --all-features -- -D warnings`, `cargo test -p parcopy --all-features`, and `govctl check`.
+"""
+
+[[content.acceptance_criteria]]
+text = "Amend RFC-0001 C-ERROR-MODEL to define code metadata as canonical SSOT"
+status = "done"
+category = "changed"
+
+[[content.acceptance_criteria]]
+text = "Remove markdown error-code reference artifact and associated sync-test overhead"
+status = "done"
+category = "changed"
+
+[[content.acceptance_criteria]]
+text = "govctl check and cargo test pass after simplification"
+status = "done"
+category = "chore"

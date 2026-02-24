@@ -25,21 +25,18 @@ notes = ["RFC-0001 is now normative/impl; this WI tracks full clause-by-clause i
 [[content.journal]]
 date = "2026-02-24"
 content = """
-2026-02-24
 - Advanced RFC-0001 to status=normative and phase=impl.
 - Re-rendered RFC artifacts and verified governance consistency with `govctl check`."""
 
 [[content.journal]]
 date = "2026-02-24"
 content = """
-2026-02-24
 - Implemented baseline C-ERROR-MODEL work: stable `ErrorCode` taxonomy, typed CLI error enum, and SSOT-generated error-code reference sync checks.
 - Validated baseline with fmt/check/clippy/tests."""
 
 [[content.journal]]
 date = "2026-02-24"
 content = """
-2026-02-24
 - Implemented CLI profile system (`modern` default, `safe`, `fast`) with profile-driven defaults and explicit flag override behavior.
 - Added `--plan` (with `--dry-run` alias) and `--output human|json|jsonl` contracts for both plan and execute modes.
 - Added stable machine-readable payloads with `schema_version=1.0`, `mode`, `effective_config`, and item records.
@@ -48,7 +45,6 @@ content = """
 [[content.journal]]
 date = "2026-02-24"
 content = """
-2026-02-24
 - Implemented library-level planning/execution API in `parcopy` (`plan_copy`, `execute_plan`).
 - Introduced explicit policy/runtime separation (`CopyPolicy`, `RuntimeOptions`) and structured result model (`CopyPlan`, `CopyReport`, `ItemReport`).
 - Added typed event stream (`CopyEvent`, `EventHandler`) with planned/started/completed/skipped/failed variants.
@@ -57,7 +53,6 @@ content = """
 [[content.journal]]
 date = "2026-02-24"
 content = """
-2026-02-24
 - Added canonical CLI behavior documentation at `docs/reference/cli-behavior.md`.
 - Added RFC-0001 migration notes at `docs/migrations/2026-02-rfc-0001-cli.md` and linked both from README.
 - Verified governance consistency with `govctl check`."""

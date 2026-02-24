@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-02-24
+
+### Added
+
+- Define profile-based CLI behavior for modern, compat-cp, safe, and fast modes (WI-2026-02-24-001)
+- Specify plan and structured output modes for machine-readable automation (WI-2026-02-24-001)
+- Specify library-level planner/executor API and typed event model (WI-2026-02-24-001)
+- Define stable CLI error_code taxonomy and versioning rules (WI-2026-02-24-005)
+- Require public library APIs to return typed enum errors instead of anyhow (WI-2026-02-24-005)
+- Align execution JSON error payload with stable code and optional low-level detail (WI-2026-02-24-005)
+- Implement RFC-0001 C-PROFILES with built-in modern/safe/fast profiles and effective_config surfacing (WI-2026-02-24-006)
+- Implement RFC-0001 C-PLAN-OUTPUT with --plan and stable human/json/jsonl schema contracts (WI-2026-02-24-006)
+- Implement RFC-0001 C-LIBRARY-API with plan/execute APIs, policy/runtime separation, and typed events (WI-2026-02-24-006)
+- Implement RFC-0001 C-ERROR-MODEL with stable error_code mapping and typed enum errors across public APIs (WI-2026-02-24-006)
+- Implement RFC-0001 C-COMPATIBILITY requirements in docs and release migration notes (WI-2026-02-24-006)
+
+### Fixed
+
+- Make --plan JSON/JSONL contract fully testable with explicit schema and enums (WI-2026-02-24-002)
+- Remove ambiguous deprecation window and clarify pre-1.0 breaking-change policy (WI-2026-02-24-002)
+- Define where/how effective profile overrides are surfaced for human and machine outputs (WI-2026-02-24-002)
+- Define objective compat-cp baseline and required behavior matrix (WI-2026-02-24-002)
+- Scope JSON mode=plan requirement to planning context only (WI-2026-02-24-003)
+- Align --explain requirement strength across C-PROFILES and C-COMPATIBILITY (WI-2026-02-24-003)
+- Remove mandatory compat-cp profile requirement from RFC-0001 (WI-2026-02-24-004)
+- Specify execution-mode JSON/JSONL schema alongside planning schema (WI-2026-02-24-004)
+- Keep --explain optional while preserving effective-config output guarantees (WI-2026-02-24-004)
+
 ### Changed
 
 - **BREAKING**: Removed cleanup logic on "no space" errors

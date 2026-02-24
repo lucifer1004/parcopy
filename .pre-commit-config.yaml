@@ -46,5 +46,5 @@ repos:
     rev: v3.7.4
     hooks:
       - id: prettier
-        exclude: "^docs/rfc/RFC-.*\\.md$"
+        exclude: "^(docs/rfc/RFC-.*\\.md)$"
         args: [--log-level=silent]

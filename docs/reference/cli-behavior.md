@@ -74,7 +74,7 @@ For human output, `effective_config` is printed to `stderr` when verbose output 
 ## Error Surface
 
 - Human errors include stable `error_code` in the format: `error[<error_code>]: ...`
-- Stable error code definitions: [`error-codes.md`](./error-codes.md)
+- Stable error code definitions are canonicalized in code (`parcopy::ErrorCode` and `parcopy::error_code_specs()`).
 
 Exit statuses:
 

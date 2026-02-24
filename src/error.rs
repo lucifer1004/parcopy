@@ -183,37 +183,6 @@ pub const fn error_code_specs() -> &'static [ErrorCodeSpec; 10] {
     &ERROR_CODE_SPECS
 }
 
-/// Renders the canonical markdown reference for stable error codes.
-#[must_use]
-pub fn render_error_code_reference_markdown() -> String {
-    let mut out = String::new();
-    out.push_str("# pcp/parcopy Error Codes\n\n");
-    out.push_str("Generated from `parcopy::error::error_code_specs()`. Do not edit manually.\n\n");
-    out.push_str("## Stability\n\n");
-    out.push_str("- Meanings of existing codes are stable within a major version.\n");
-    out.push_str("- New codes may be added in minor releases.\n");
-    out.push_str("- Removing or changing a code meaning requires a major release.\n\n");
-    out.push_str("## CLI Exit Status Mapping\n\n");
-    out.push_str("- `0`: success\n");
-    out.push_str("- `1`: runtime failure (`error_code != invalid_input`)\n");
-    out.push_str("- `2`: invalid usage/input (`error_code = invalid_input`)\n");
-    out.push_str("- `130`: cancelled by signal/user interruption\n\n");
-    out.push_str("## Error Code Reference\n\n");
-    out.push_str("| `error_code` | Meaning | Typical triggers | Recommended remediation |\n");
-    out.push_str("| --- | --- | --- | --- |\n");
-    for spec in ErrorCode::all() {
-        let spec = spec.spec();
-        out.push_str(&format!(
-            "| `{}` | {} | {} | {} |\n",
-            spec.code.as_str(),
-            spec.meaning,
-            spec.typical_triggers,
-            spec.remediation
-        ));
-    }
-    out
-}
-
 /// Check if an IO error indicates "no space left on device".
 ///
 /// This helper function detects storage-full conditions across platforms.
@@ -424,7 +393,6 @@ impl Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn test_is_no_space_error_storage_full_kind() {
@@ -509,17 +477,5 @@ mod tests {
         for code in ErrorCode::all() {
             assert_eq!(code.spec().code, code);
         }
-    }
-
-    #[test]
-    fn test_error_code_reference_doc_is_in_sync() {
-        let expected = render_error_code_reference_markdown();
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/reference/error-codes.md");
-        let actual = fs::read_to_string(path).expect("error code reference doc should exist");
-        assert_eq!(
-            actual, expected,
-            "error code docs out of sync with code metadata"
-        );
     }
 }
