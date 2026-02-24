@@ -192,11 +192,20 @@ mod linux_tests {
             .and_then(|name| name.to_str())
             .expect("Source temp dir should have a valid name")
             .to_string();
-        let target_dir = mount_point.path().join("dst").join(&src_name);
+        let dst_dir = mount_point.path().join("dst");
+        let target_dir = dst_dir.join(&src_name);
+
+        // Pre-create the target directory so that `-t` treats it as an existing
+        // directory and places files at dst/<src_name>/file*.txt (not dst/file*.txt).
+        fs::create_dir_all(&dst_dir).expect("Failed to create dst directory");
 
         // First copy: should partially succeed and fail with no-space.
+        // Use -j 1 to ensure sequential processing so that some files complete
+        // before the tmpfs fills up (parallel workers can all fail simultaneously).
         let mut cmd = cargo_bin_cmd!("pcp");
         cmd.arg("-r")
+            .arg("-j")
+            .arg("1")
             .arg(src.path())
             .arg("-t")
             .arg(mount_point.path().join("dst"))

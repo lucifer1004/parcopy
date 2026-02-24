@@ -1,0 +1,28 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-008"
+title = "Fix CI test failures in no_space and error_handling tests"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+
+[content]
+description = """
+Describe the work to be done.
+What is the goal? What are the acceptance criteria?"""
+
+[[content.acceptance_criteria]]
+text = "no_space resume test uses sequential copy to avoid parallel race on tiny tmpfs"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Windows nonexistent-path test accepts os error 123 message"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "govctl check passes"
+status = "done"
+category = "chore"

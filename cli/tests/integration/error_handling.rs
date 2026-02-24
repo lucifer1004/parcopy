@@ -304,7 +304,9 @@ fn test_copy_to_nonexistent_parent_directory() {
         .stderr(
             predicate::str::contains("No such file or directory")
                 .or(predicate::str::contains("does not exist"))
-                .or(predicate::str::contains("not found")),
+                .or(predicate::str::contains("not found"))
+                // Windows: "/nonexistent/path" triggers ERROR_INVALID_NAME (os error 123)
+                .or(predicate::str::contains("syntax is incorrect")),
         );
 
     // Behavior: consistent with `cp` - should fail without creating parent directories

@@ -1,2 +1,4 @@
 /target
 .govctl.lock
+.claude
+.omc
