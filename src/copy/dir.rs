@@ -494,8 +494,10 @@ fn collect_entries(
         }
     }
 
-    // Track visited directories by (dev, ino) to detect symlink loops
-    // This is O(1) per directory vs O(n) for canonicalize which resolves all symlinks
+    // Track ancestor directories by (dev, ino) to detect symlink loops.
+    // Per [[ADR-0001]], use stack-based detection: only the current root-to-leaf
+    // ancestor chain is tracked. The key is removed on backtrack so the same
+    // directory reachable from different branches is NOT treated as a loop.
     let dir_key = get_dir_key(src)?;
     if !visited.insert(dir_key) {
         return Err(Error::SymlinkLoop(src.to_path_buf()));
@@ -566,6 +568,10 @@ fn collect_entries(
             options.warn(&format!("Skipping special file: {}", src_path.display()));
         }
     }
+
+    // Remove from ancestor set on backtrack — allows the same directory
+    // to be visited from a different branch without false-positive loop error.
+    visited.remove(&dir_key);
 
     Ok(())
 }
@@ -1028,6 +1034,47 @@ mod tests {
         assert_eq!(WARN_COUNT.load(Ordering::SeqCst), 1);
         assert!(dst.join("file.txt").exists());
         assert!(is_symlink(&dst.join("escaped")));
+    }
+
+    /// Per [[ADR-0001]]: multiple symlinks to the same directory from different
+    /// branches must NOT be rejected as a symlink loop under -L mode.
+    #[cfg(unix)]
+    #[test]
+    fn test_copy_dir_same_target_different_branches_no_false_loop() {
+        use std::os::unix::fs::symlink;
+
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        // Create a shared directory with content
+        let shared = src_dir.path().join("shared_lib");
+        fs::create_dir(&shared).unwrap();
+        fs::write(shared.join("lib.rs"), "pub fn hello() {}").unwrap();
+
+        // Create two branches that both symlink to the same shared dir
+        let branch_a = src_dir.path().join("project_a");
+        let branch_b = src_dir.path().join("project_b");
+        fs::create_dir(&branch_a).unwrap();
+        fs::create_dir(&branch_b).unwrap();
+        symlink(&shared, branch_a.join("lib")).unwrap();
+        symlink(&shared, branch_b.join("lib")).unwrap();
+
+        // Follow symlinks (preserve_symlinks: false) — the old code would
+        // error with SymlinkLoop on the second branch's lib/
+        let options = CopyOptions {
+            preserve_symlinks: false,
+            ..Default::default()
+        };
+
+        let dst = dst_dir.path().join("copied");
+        let stats = copy_dir(src_dir.path(), &dst, &options).unwrap();
+
+        // Both branches should have their own copy of the shared content
+        assert!(dst.join("project_a/lib/lib.rs").exists());
+        assert!(dst.join("project_b/lib/lib.rs").exists());
+        assert!(dst.join("shared_lib/lib.rs").exists());
+        // The shared lib content is copied 3 times (shared_lib + 2 branches)
+        assert_eq!(stats.files_copied, 3);
     }
 
     #[test]

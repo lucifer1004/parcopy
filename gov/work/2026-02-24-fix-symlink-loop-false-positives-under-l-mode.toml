@@ -1,0 +1,27 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-010"
+title = "Fix symlink loop false positives under -L mode"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+refs = ["ADR-0001"]
+
+[content]
+description = """Fix symlink loop false positives under -L mode"""
+
+[[content.acceptance_criteria]]
+text = "Stack-based ancestor detection replaces global visited set"
+status = "done"
+category = "fixed"
+
+[[content.acceptance_criteria]]
+text = "Test for multi-branch symlink to same directory under -L"
+status = "done"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Existing symlink loop tests still pass"
+status = "done"
+category = "chore"

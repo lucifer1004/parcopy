@@ -1,0 +1,65 @@
+[govctl]
+schema = 1
+id = "ADR-0001"
+title = "Symlink loop detection strategy for directory traversal"
+status = "accepted"
+date = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+context = """
+The current `copy_dir` implementation uses a global `HashSet<(dev, ino)>` to detect symlink loops during recursive directory traversal. Once a directory's `(dev, ino)` is inserted, any subsequent encounter — even from an independent branch of the tree — triggers a hard `Error::SymlinkLoop`.
+
+The behavior differs by symlink mode:
+
+**Default mode (preserve symlinks):** Symlinks are recorded and recreated, never followed. Only real directories are recursed into. Since hardlinks to directories are forbidden on Linux/macOS, the `(dev, ino)` set cannot have collisions in practice. The current detection is correct and harmless in this mode.
+
+**`-L` / `--follow-symlinks` mode:** Symlinks to directories are followed and recursed into. This is where both true loops (symlink → ancestor) and false positives (two symlinks → same directory from different branches) can occur. The global set correctly detects loops but incorrectly rejects legitimate structures like:
+
+```
+src/
+  project-a/lib/ → /shared-lib/   (followed, inserted)
+  project-b/lib/ → /shared-lib/   (followed, rejected as "loop")
+```
+
+GNU `cp -rL` handles this by only checking the ancestor chain, not a global set.
+
+Related: [[RFC-0001:C-ERROR-MODEL]] defines `symlink_loop` as a stable error code. This ADR concerns *when* that code is triggered under `-L`, not its existence. The default (preserve) mode is unaffected."""
+decision = """
+Use stack-based ancestor detection under `-L` mode, matching `cp -rL` semantics.
+
+The `visited` set in `collect_entries` MUST remove a directory's `(dev, ino)` key after backtracking, so that only ancestor directories on the current root-to-leaf path are tracked. A directory encountered in a different branch of the tree MUST NOT be treated as a loop.
+
+The default mode (preserve symlinks) is unaffected — the global set behavior is correct there, but switching to stack-based is also safe since real directories cannot form loops.
+
+A future `--dedup-dirs` flag MAY be considered separately if users report performance concerns from duplicated copies of shared directories under `-L`."""
+consequences = """
+**Positive:**
+- Eliminates false-positive `SymlinkLoop` errors for legitimate directory structures under `-L`
+- Matches GNU `cp -rL` behavior — no user surprises
+- Minimal implementation change (add `visited.remove(&dir_key)` after recursive calls)
+
+**Negative:**
+- Under `-L`, the same directory reachable from N branches is copied N times (increased I/O and disk usage)
+- No deduplication — users with large shared symlink targets pay a performance cost
+
+**Neutral:**
+- The `symlink_loop` error code in [[RFC-0001:C-ERROR-MODEL]] is unchanged — it is still triggered for true ancestor loops
+- Default mode (preserve symlinks) behavior is unchanged
+- Existing tests for symlink loop detection remain valid (they test true loops)"""
+
+[[content.alternatives]]
+text = "Global set (current): Track all visited (dev, ino) pairs globally. Simple O(1) lookup but produces false positives when the same directory is reachable from multiple independent branches."
+status = "considered"
+
+[[content.alternatives]]
+text = "Stack-based ancestor detection: Remove (dev, ino) from visited set when backtracking. Only directories on the current root-to-leaf path are considered visited. Matches GNU cp -r semantics exactly. Same directory in different branches is copied independently."
+status = "considered"
+
+[[content.alternatives]]
+text = "Hybrid stack + global dedup: Use ancestor stack for loop detection (hard error) plus a separate global seen set for deduplication (skip with warning). Avoids redundant copies of shared directories but deviates from cp semantics and introduces non-determinism in which branch wins."
+status = "considered"
+
+[[content.alternatives]]
+text = "Stack-based default with opt-in dedup flag: Use stack-based detection by default (cp-compatible), add a future --dedup-dirs flag to enable hybrid behavior for power users with large shared directory trees."
+status = "considered"
