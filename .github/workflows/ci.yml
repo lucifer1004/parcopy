@@ -11,22 +11,6 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
-
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -44,16 +28,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Test
-        run: cargo test --workspace ${{ matrix.features }}
+      # Format check — only on Ubuntu (platform-independent)
+      - name: Format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace ${{ matrix.features }} -- -D warnings
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+      - name: Test with coverage
+        run: cargo llvm-cov --workspace ${{ matrix.features }} --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -61,9 +52,6 @@ jobs:
           fail_ci_if_error: false
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Build
-        run: cargo build --workspace --release
 
   msrv:
     name: MSRV (1.85)
@@ -88,17 +76,17 @@ jobs:
           apt-get update
           apt-get install -y pkg-config libfuse3-dev fuse3
 
-      - name: Build
-        run: cargo build --workspace --all-features
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Run no-space tests
-        run: cargo test --package parcopy-cli --test no_space -- --nocapture
+      - name: Run no-space tests with coverage
+        run: cargo llvm-cov --package parcopy-cli --test no_space --lcov --output-path lcov-no-space.info -- --nocapture
         env:
           RUST_BACKTRACE: 1
 
-      - name: Test summary
-        if: always()
-        run: |
-          echo "No-space tests completed."
-          echo "These tests verify that files are retained after 'no space' errors,"
-          echo "enabling resumable copy operations."
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: false
+          files: lcov-no-space.info
+          token: ${{ secrets.CODECOV_TOKEN }}
