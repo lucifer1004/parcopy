@@ -1,0 +1,18 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-009"
+title = "Increase test coverage for plan_execute, error, and copy/dir modules"
+status = "done"
+created = "2026-02-24"
+started = "2026-02-24"
+completed = "2026-02-24"
+
+[content]
+description = """
+Describe the work to be done.
+What is the goal? What are the acceptance criteria?"""
+
+[[content.acceptance_criteria]]
+text = "Increase test coverage for low-coverage modules"
+status = "done"
+category = "chore"

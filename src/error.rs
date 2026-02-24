@@ -478,4 +478,184 @@ mod tests {
             assert_eq!(code.spec().code, code);
         }
     }
+
+    #[test]
+    fn test_error_code_as_str_all_variants() {
+        assert_eq!(ErrorCode::SourceNotFound.as_str(), "source_not_found");
+        assert_eq!(ErrorCode::AlreadyExists.as_str(), "already_exists");
+        assert_eq!(ErrorCode::NoSpace.as_str(), "no_space");
+        assert_eq!(ErrorCode::Cancelled.as_str(), "cancelled");
+        assert_eq!(ErrorCode::PartialCopy.as_str(), "partial_copy");
+        assert_eq!(ErrorCode::SymlinkLoop.as_str(), "symlink_loop");
+        assert_eq!(ErrorCode::IoError.as_str(), "io_error");
+        assert_eq!(ErrorCode::Internal.as_str(), "internal");
+    }
+
+    #[test]
+    fn test_error_code_display() {
+        assert_eq!(format!("{}", ErrorCode::InvalidInput), "invalid_input");
+        assert_eq!(format!("{}", ErrorCode::NoSpace), "no_space");
+        assert_eq!(format!("{}", ErrorCode::Cancelled), "cancelled");
+        assert_eq!(format!("{}", ErrorCode::SymlinkLoop), "symlink_loop");
+    }
+
+    #[test]
+    fn test_error_code_mapping_tempfile_no_space() {
+        let err = Error::TempFile {
+            path: PathBuf::from("/dst"),
+            source: io::Error::new(io::ErrorKind::StorageFull, "disk full"),
+        };
+        assert_eq!(err.code(), ErrorCode::NoSpace);
+    }
+
+    #[test]
+    fn test_error_code_mapping_tempfile_permission() {
+        let err = Error::TempFile {
+            path: PathBuf::from("/dst"),
+            source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
+        };
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+    }
+
+    #[test]
+    fn test_error_code_mapping_tempfile_other_io() {
+        let err = Error::TempFile {
+            path: PathBuf::from("/dst"),
+            source: io::Error::new(io::ErrorKind::Other, "some error"),
+        };
+        assert_eq!(err.code(), ErrorCode::IoError);
+    }
+
+    #[test]
+    fn test_error_code_mapping_persist() {
+        let err = Error::Persist {
+            path: PathBuf::from("/dst/file"),
+            source: io::Error::new(io::ErrorKind::StorageFull, "disk full"),
+        };
+        assert_eq!(err.code(), ErrorCode::NoSpace);
+
+        let err = Error::Persist {
+            path: PathBuf::from("/dst/file"),
+            source: io::Error::new(io::ErrorKind::PermissionDenied, "denied"),
+        };
+        assert_eq!(err.code(), ErrorCode::PermissionDenied);
+    }
+
+    #[test]
+    fn test_error_code_mapping_partial_symlinks() {
+        let err = Error::PartialSymlinks {
+            failed: 2,
+            total: 5,
+        };
+        assert_eq!(err.code(), ErrorCode::PartialCopy);
+    }
+
+    #[test]
+    fn test_error_code_mapping_symlink_loop() {
+        let err = Error::SymlinkLoop(PathBuf::from("/loop"));
+        assert_eq!(err.code(), ErrorCode::SymlinkLoop);
+    }
+
+    #[test]
+    fn test_error_code_mapping_cancelled() {
+        let err = Error::Cancelled {
+            files_copied: 5,
+            bytes_copied: 1024,
+            files_skipped: 2,
+            dirs_created: 1,
+        };
+        assert_eq!(err.code(), ErrorCode::Cancelled);
+    }
+
+    #[test]
+    fn test_error_code_mapping_max_depth() {
+        let err = Error::MaxDepthExceeded {
+            path: PathBuf::from("/deep"),
+            max_depth: 10,
+        };
+        assert_eq!(err.code(), ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn test_error_code_mapping_not_a_directory() {
+        let err = Error::NotADirectory(PathBuf::from("/file"));
+        assert_eq!(err.code(), ErrorCode::InvalidInput);
+    }
+
+    #[test]
+    fn test_error_display_variants() {
+        let err = Error::PartialCopy {
+            failed: 3,
+            total: 10,
+        };
+        assert!(format!("{err}").contains("3 of 10"));
+
+        let err = Error::PartialSymlinks {
+            failed: 1,
+            total: 4,
+        };
+        assert!(format!("{err}").contains("1 of 4"));
+
+        let err = Error::SourceNotFound(PathBuf::from("/missing"));
+        assert!(format!("{err}").contains("/missing"));
+
+        let err = Error::AlreadyExists(PathBuf::from("/exists"));
+        assert!(format!("{err}").contains("/exists"));
+
+        let err = Error::IsADirectory(PathBuf::from("/dir"));
+        assert!(format!("{err}").contains("/dir"));
+
+        let err = Error::SymlinkLoop(PathBuf::from("/loop"));
+        assert!(format!("{err}").contains("/loop"));
+
+        let err = Error::MaxDepthExceeded {
+            path: PathBuf::from("/deep"),
+            max_depth: 5,
+        };
+        assert!(format!("{err}").contains("5"));
+
+        let err = Error::Cancelled {
+            files_copied: 3,
+            bytes_copied: 100,
+            files_skipped: 1,
+            dirs_created: 0,
+        };
+        assert!(format!("{err}").contains("3 files copied"));
+
+        let err = Error::TempFile {
+            path: PathBuf::from("/dst"),
+            source: io::Error::new(io::ErrorKind::Other, "fail"),
+        };
+        assert!(format!("{err}").contains("/dst"));
+
+        let err = Error::Persist {
+            path: PathBuf::from("/dst/f"),
+            source: io::Error::new(io::ErrorKind::Other, "fail"),
+        };
+        assert!(format!("{err}").contains("/dst/f"));
+    }
+
+    #[test]
+    fn test_error_code_spec_fields_non_empty() {
+        for code in ErrorCode::all() {
+            let spec = code.spec();
+            assert!(!spec.meaning.is_empty(), "{:?} has empty meaning", code);
+            assert!(
+                !spec.typical_triggers.is_empty(),
+                "{:?} has empty triggers",
+                code
+            );
+            assert!(
+                !spec.remediation.is_empty(),
+                "{:?} has empty remediation",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn test_io_error_code_generic() {
+        let err = Error::Io(io::Error::new(io::ErrorKind::Other, "generic"));
+        assert_eq!(err.code(), ErrorCode::IoError);
+    }
 }

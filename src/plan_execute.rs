@@ -576,4 +576,341 @@ mod tests {
         assert_eq!(report.items[0].outcome, ItemOutcome::Failed);
         assert_eq!(report.items[0].error_code, Some(ErrorCode::AlreadyExists));
     }
+
+    #[test]
+    fn test_plan_copy_empty_sources() {
+        let result = plan_copy(
+            vec![],
+            PathBuf::from("/dst"),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), ErrorCode::IoError);
+    }
+
+    #[test]
+    fn test_plan_copy_multi_source_to_non_dir() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let s1 = src_dir.path().join("a.txt");
+        let s2 = src_dir.path().join("b.txt");
+        let dest_file = dst_dir.path().join("existing_file");
+        std::fs::write(&s1, "a").unwrap();
+        std::fs::write(&s2, "b").unwrap();
+        std::fs::write(&dest_file, "not a dir").unwrap();
+
+        let result = plan_copy(
+            vec![s1, s2],
+            dest_file,
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        );
+        assert!(matches!(result.unwrap_err(), Error::NotADirectory(_)));
+    }
+
+    #[test]
+    fn test_plan_copy_source_not_found() {
+        let result = plan_copy(
+            vec![PathBuf::from("/nonexistent/source.txt")],
+            PathBuf::from("/tmp/dst"),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        );
+        assert!(matches!(result.unwrap_err(), Error::SourceNotFound(_)));
+    }
+
+    #[test]
+    fn test_plan_copy_multi_source_to_dir() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let s1 = src_dir.path().join("a.txt");
+        let s2 = src_dir.path().join("b.txt");
+        std::fs::write(&s1, "a").unwrap();
+        std::fs::write(&s2, "b").unwrap();
+
+        let plan = plan_copy(
+            vec![s1.clone(), s2.clone()],
+            dst_dir.path().to_path_buf(),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(plan.items.len(), 2);
+        // Multi-source: destinations should be inside the target dir
+        assert_eq!(plan.items[0].destination, dst_dir.path().join("a.txt"));
+        assert_eq!(plan.items[1].destination, dst_dir.path().join("b.txt"));
+    }
+
+    #[test]
+    fn test_plan_copy_directory_item() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let sub = src_dir.path().join("mydir");
+        std::fs::create_dir(&sub).unwrap();
+
+        let plan = plan_copy(
+            vec![sub.clone()],
+            dst_dir.path().join("target"),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].kind, PlannedItemKind::Directory);
+        assert_eq!(plan.items[0].action, PlanAction::Copy);
+    }
+
+    #[test]
+    fn test_classify_overwrite_conflict() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        let destination = dst_dir.path().join("f.txt");
+        std::fs::write(&source, "new").unwrap();
+        std::fs::write(&destination, "old").unwrap();
+
+        let policy = CopyPolicy {
+            on_conflict: OnConflict::Overwrite,
+            ..CopyPolicy::default()
+        };
+        let plan = plan_copy(vec![source], destination, policy, RuntimeOptions::default()).unwrap();
+
+        assert_eq!(plan.items[0].action, PlanAction::Overwrite);
+        assert_eq!(plan.items[0].reason, PlanReason::Exists);
+    }
+
+    #[test]
+    fn test_classify_error_conflict() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        let destination = dst_dir.path().join("f.txt");
+        std::fs::write(&source, "new").unwrap();
+        std::fs::write(&destination, "old").unwrap();
+
+        let policy = CopyPolicy {
+            on_conflict: OnConflict::Error,
+            ..CopyPolicy::default()
+        };
+        let plan = plan_copy(vec![source], destination, policy, RuntimeOptions::default()).unwrap();
+
+        assert_eq!(plan.items[0].action, PlanAction::Error);
+        assert_eq!(plan.items[0].reason, PlanReason::Exists);
+    }
+
+    #[test]
+    fn test_classify_update_newer_skips_older_source() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        let destination = dst_dir.path().join("f.txt");
+
+        // Write source first, then sleep, then write destination (newer)
+        std::fs::write(&source, "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&destination, "newer").unwrap();
+
+        let policy = CopyPolicy {
+            on_conflict: OnConflict::UpdateNewer,
+            ..CopyPolicy::default()
+        };
+        let plan = plan_copy(vec![source], destination, policy, RuntimeOptions::default()).unwrap();
+
+        assert_eq!(plan.items[0].action, PlanAction::Skip);
+        assert_eq!(plan.items[0].reason, PlanReason::NewerOrSame);
+    }
+
+    #[test]
+    fn test_classify_update_newer_copies_newer_source() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        let destination = dst_dir.path().join("f.txt");
+
+        // Write destination first, then sleep, then write source (newer)
+        std::fs::write(&destination, "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&source, "newer").unwrap();
+
+        let policy = CopyPolicy {
+            on_conflict: OnConflict::UpdateNewer,
+            ..CopyPolicy::default()
+        };
+        let plan = plan_copy(vec![source], destination, policy, RuntimeOptions::default()).unwrap();
+
+        assert_eq!(plan.items[0].action, PlanAction::Copy);
+        assert_eq!(plan.items[0].reason, PlanReason::Exists);
+    }
+
+    #[test]
+    fn test_execute_plan_directory_copy() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let sub = src_dir.path().join("mydir");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("file.txt"), "content").unwrap();
+
+        let plan = plan_copy(
+            vec![sub],
+            dst_dir.path().join("target"),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        )
+        .unwrap();
+
+        let mut events = Vec::new();
+        let mut collector = |event: &CopyEvent| events.push(event.clone());
+        let report = execute_plan(&plan, Some(&mut collector));
+
+        assert!(!report.has_failures());
+        assert_eq!(report.items.len(), 1);
+        assert_eq!(report.items[0].outcome, ItemOutcome::Copied);
+        assert!(report.items[0].bytes_copied.is_some());
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CopyEvent::ItemCompleted { .. }))
+        );
+    }
+
+    #[test]
+    fn test_execute_plan_directory_copy_failure() {
+        // Try to copy a non-existent directory (plan it manually)
+        let plan = CopyPlan {
+            destination_root: PathBuf::from("/tmp/dst"),
+            policy: CopyPolicy::default(),
+            runtime: RuntimeOptions::default(),
+            items: vec![PlannedItem {
+                source: PathBuf::from("/nonexistent/src_dir"),
+                destination: PathBuf::from("/tmp/dst/src_dir"),
+                kind: PlannedItemKind::Directory,
+                action: PlanAction::Copy,
+                reason: PlanReason::NotExists,
+                estimated_bytes: 0,
+            }],
+        };
+
+        let mut events = Vec::new();
+        let mut collector = |event: &CopyEvent| events.push(event.clone());
+        let report = execute_plan(&plan, Some(&mut collector));
+
+        assert!(report.has_failures());
+        assert_eq!(report.items[0].outcome, ItemOutcome::Failed);
+        assert!(report.items[0].error_code.is_some());
+        assert!(report.items[0].error_message.is_some());
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CopyEvent::ItemFailed { .. }))
+        );
+    }
+
+    #[test]
+    fn test_execute_plan_file_skip() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        let destination = dst_dir.path().join("f.txt");
+        std::fs::write(&source, "content").unwrap();
+        std::fs::write(&destination, "existing").unwrap();
+
+        // Skip conflict policy is the default
+        let plan = plan_copy(
+            vec![source],
+            destination,
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        )
+        .unwrap();
+
+        let mut events = Vec::new();
+        let mut collector = |event: &CopyEvent| events.push(event.clone());
+        let report = execute_plan(&plan, Some(&mut collector));
+
+        assert!(!report.has_failures());
+        assert_eq!(report.stats.files_skipped, 1);
+        assert_eq!(report.items[0].outcome, ItemOutcome::Skipped);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CopyEvent::ItemSkipped { .. }))
+        );
+    }
+
+    #[test]
+    fn test_execute_plan_no_handler() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dst_dir = tempfile::TempDir::new().unwrap();
+        let source = src_dir.path().join("f.txt");
+        std::fs::write(&source, "content").unwrap();
+
+        let plan = plan_copy(
+            vec![source],
+            dst_dir.path().join("f.txt"),
+            CopyPolicy::default(),
+            RuntimeOptions::default(),
+        )
+        .unwrap();
+
+        // Execute with no event handler
+        let report = execute_plan(&plan, None);
+        assert!(!report.has_failures());
+        assert_eq!(report.stats.files_copied, 1);
+    }
+
+    #[test]
+    fn test_copy_report_has_failures_false() {
+        let report = CopyReport::default();
+        assert!(!report.has_failures());
+    }
+
+    #[test]
+    fn test_runtime_options_default() {
+        let rt = RuntimeOptions::default();
+        assert_eq!(rt.parallel, 16);
+        assert!(rt.cancel_token.is_none());
+    }
+
+    #[test]
+    fn test_copy_options_from_plan_roundtrip() {
+        let policy = CopyPolicy {
+            on_conflict: OnConflict::Overwrite,
+            preserve_permissions: false,
+            preserve_dir_permissions: false,
+            preserve_symlinks: false,
+            preserve_timestamps: false,
+            preserve_windows_attributes: false,
+            fsync: false,
+            warn_escaping_symlinks: true,
+            block_escaping_symlinks: true,
+            max_depth: Some(5),
+        };
+        let runtime = RuntimeOptions {
+            parallel: 4,
+            cancel_token: None,
+        };
+        let plan = CopyPlan {
+            destination_root: PathBuf::from("/dst"),
+            policy: policy.clone(),
+            runtime,
+            items: vec![],
+        };
+
+        let options = copy_options_from_plan(&plan);
+        assert_eq!(options.on_conflict, OnConflict::Overwrite);
+        assert!(!options.preserve_permissions);
+        assert!(!options.preserve_dir_permissions);
+        assert!(!options.preserve_symlinks);
+        assert!(!options.preserve_timestamps);
+        assert!(!options.preserve_windows_attributes);
+        assert!(!options.fsync);
+        assert!(options.warn_escaping_symlinks);
+        assert!(options.block_escaping_symlinks);
+        assert_eq!(options.max_depth, Some(5));
+        assert_eq!(options.parallel, 4);
+    }
 }
