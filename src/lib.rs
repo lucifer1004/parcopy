@@ -128,7 +128,10 @@ mod win_attrs;
 
 pub use builder::CopyBuilder;
 pub use copy::{CopyStats, copy_dir, copy_file};
-pub use error::{Error, Result, is_no_space_error};
+pub use error::{
+    Error, ErrorCode, ErrorCodeSpec, Result, error_code_specs, is_no_space_error,
+    render_error_code_reference_markdown,
+};
 pub use options::{CopyOptions, OnConflict};
 
 #[cfg(feature = "progress")]

@@ -2,15 +2,19 @@
 //!
 //! A fast, parallel file/directory copy command powered by parcopy.
 
-use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
-use parcopy::{CopyOptions, CopyStats, OnConflict, copy_dir, copy_file};
+use parcopy::{
+    CopyOptions, CopyStats, Error as ParcopyError, ErrorCode, OnConflict, copy_dir, copy_file,
+    is_no_space_error,
+};
 use std::fs::Metadata;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 /// pcp - Fast parallel file copy
 ///
@@ -114,7 +118,116 @@ impl From<ConflictStrategy> for OnConflict {
     }
 }
 
-fn main() -> Result<()> {
+type CliResult<T> = std::result::Result<T, CliError>;
+
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("Source is a directory. Use -r/--recursive to copy directories: {path}")]
+    SourceIsDirectoryWithoutRecursive { path: PathBuf },
+
+    #[error("Source does not exist: {path}")]
+    SourceNotFound { path: PathBuf },
+
+    #[error("Failed to read source metadata: {path}: {source}")]
+    SourceMetadata { path: PathBuf, source: io::Error },
+
+    #[error("Target is not a directory: {path}")]
+    TargetNotDirectory { path: PathBuf },
+
+    #[error("Missing destination operand after '{operand}'")]
+    MissingDestinationOperand { operand: PathBuf },
+
+    #[error("Target '{path}' is not a directory (when copying multiple sources)")]
+    MultiSourceTargetNotDirectory { path: PathBuf },
+
+    #[error("Source has no filename: {path}")]
+    SourceHasNoFilename { path: PathBuf },
+
+    #[error("Failed to create directory: {path}: {source}")]
+    CreateDirectory { path: PathBuf, source: io::Error },
+
+    #[error("Failed to copy directory: {path}: {source}")]
+    CopyDirectory { path: PathBuf, source: ParcopyError },
+
+    #[error("Failed to copy file: {path}: {source}")]
+    CopyFile { path: PathBuf, source: ParcopyError },
+}
+
+impl CliError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::SourceIsDirectoryWithoutRecursive { .. }
+            | Self::TargetNotDirectory { .. }
+            | Self::MissingDestinationOperand { .. }
+            | Self::MultiSourceTargetNotDirectory { .. }
+            | Self::SourceHasNoFilename { .. } => ErrorCode::InvalidInput,
+            Self::SourceNotFound { .. } => ErrorCode::SourceNotFound,
+            Self::SourceMetadata { source, .. } | Self::CreateDirectory { source, .. } => {
+                io_error_code(source)
+            }
+            Self::CopyDirectory { source, .. } | Self::CopyFile { source, .. } => source.code(),
+        }
+    }
+}
+
+fn io_error_code(error: &io::Error) -> ErrorCode {
+    if is_no_space_error(error) {
+        return ErrorCode::NoSpace;
+    }
+    if error.kind() == io::ErrorKind::PermissionDenied {
+        return ErrorCode::PermissionDenied;
+    }
+    ErrorCode::IoError
+}
+
+fn cancellation_stats(error: &CliError) -> Option<(u64, u64)> {
+    match error {
+        CliError::CopyDirectory {
+            source:
+                ParcopyError::Cancelled {
+                    files_copied,
+                    bytes_copied,
+                    ..
+                },
+            ..
+        }
+        | CliError::CopyFile {
+            source:
+                ParcopyError::Cancelled {
+                    files_copied,
+                    bytes_copied,
+                    ..
+                },
+            ..
+        } => Some((*files_copied, *bytes_copied)),
+        _ => None,
+    }
+}
+
+fn exit_code_for(code: ErrorCode) -> i32 {
+    match code {
+        ErrorCode::InvalidInput => 2,
+        _ => 1,
+    }
+}
+
+fn main() {
+    if let Err(error) = run() {
+        if let Some((files_copied, bytes_copied)) = cancellation_stats(&error) {
+            eprintln!(
+                "Cancelled after copying {} files ({}).",
+                files_copied,
+                format_bytes(bytes_copied)
+            );
+            eprintln!("Re-run with the same command to resume.");
+            std::process::exit(130);
+        }
+        eprintln!("error[{}]: {}", error.code(), error);
+        std::process::exit(exit_code_for(error.code()));
+    }
+}
+
+fn run() -> CliResult<()> {
     let args = Args::parse();
 
     // Determine sources and destination based on arguments
@@ -126,14 +239,16 @@ fn main() -> Result<()> {
         match src.metadata() {
             Ok(meta) => {
                 if meta.is_dir() && !args.recursive {
-                    bail!(
-                        "Source is a directory. Use -r/--recursive to copy directories: {}",
-                        src.display()
-                    );
+                    return Err(CliError::SourceIsDirectoryWithoutRecursive { path: src });
                 }
                 sources_with_meta.push((src, meta));
             }
-            Err(_) => bail!("Source does not exist: {}", src.display()),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                return Err(CliError::SourceNotFound { path: src });
+            }
+            Err(source) => {
+                return Err(CliError::SourceMetadata { path: src, source });
+            }
         }
     }
 
@@ -190,7 +305,7 @@ fn main() -> Result<()> {
 
     // Perform the copy
     let start_time = Instant::now();
-    let result = copy_sources(&sources_with_meta, &dest, &options);
+    let mut stats = copy_sources(&sources_with_meta, &dest, &options)?;
     let total_duration = start_time.elapsed();
 
     // Finish progress bar
@@ -198,36 +313,12 @@ fn main() -> Result<()> {
         pb.finish_and_clear();
     }
 
-    // Handle result
-    match result {
-        Ok(mut stats) => {
-            // Use total wall-clock time for multi-source copies
-            if sources_with_meta.len() > 1 {
-                stats.duration = total_duration;
-            }
-            print_stats(&stats, args.verbose);
-            Ok(())
-        }
-        Err(e) => {
-            // Check if the underlying error is a cancellation
-            if let Some(parcopy::Error::Cancelled {
-                files_copied,
-                bytes_copied,
-                ..
-            }) = e.downcast_ref::<parcopy::Error>()
-            {
-                eprintln!(
-                    "Cancelled after copying {} files ({}).",
-                    files_copied,
-                    format_bytes(*bytes_copied)
-                );
-                eprintln!("Re-run with the same command to resume.");
-                std::process::exit(130);
-            }
-            eprintln!("error: {:#}", e);
-            std::process::exit(1);
-        }
+    // Use total wall-clock time for multi-source copies
+    if sources_with_meta.len() > 1 {
+        stats.duration = total_duration;
     }
+    print_stats(&stats, args.verbose);
+    Ok(())
 }
 
 /// Resolve sources and destination from command-line arguments.
@@ -236,20 +327,21 @@ fn main() -> Result<()> {
 /// 1. `pcp SOURCE DEST` - single source to destination
 /// 2. `pcp SOURCE... DIRECTORY` - multiple sources to directory
 /// 3. `pcp -t DIRECTORY SOURCE...` - explicit target directory
-fn resolve_sources_and_dest(args: &Args) -> Result<(Vec<PathBuf>, PathBuf)> {
+fn resolve_sources_and_dest(args: &Args) -> CliResult<(Vec<PathBuf>, PathBuf)> {
     // args.sources is guaranteed by clap's `required = true`
     if let Some(ref target_dir) = args.target_directory {
         // -t DIRECTORY mode: all args are sources
         if !target_dir.is_dir() && target_dir.exists() {
-            bail!("Target is not a directory: {}", target_dir.display());
+            return Err(CliError::TargetNotDirectory {
+                path: target_dir.clone(),
+            });
         }
         Ok((args.sources.clone(), target_dir.clone()))
     } else if args.sources.len() == 1 {
         // Single argument - this is an error, we need at least source and dest
-        bail!(
-            "Missing destination operand after '{}'",
-            args.sources[0].display()
-        );
+        Err(CliError::MissingDestinationOperand {
+            operand: args.sources[0].clone(),
+        })
     } else if args.sources.len() == 2 {
         // Two arguments: SOURCE DEST
         let src = args.sources[0].clone();
@@ -263,10 +355,7 @@ fn resolve_sources_and_dest(args: &Args) -> Result<(Vec<PathBuf>, PathBuf)> {
         let dest = &dest_slice[0];
 
         if !dest.is_dir() && dest.exists() {
-            bail!(
-                "Target '{}' is not a directory (when copying multiple sources)",
-                dest.display()
-            );
+            return Err(CliError::MultiSourceTargetNotDirectory { path: dest.clone() });
         }
 
         Ok((sources_slice.to_vec(), dest.clone()))
@@ -331,7 +420,7 @@ fn copy_sources(
     sources_with_meta: &[(PathBuf, Metadata)],
     dest: &PathBuf,
     options: &CopyOptions,
-) -> Result<CopyStats> {
+) -> CliResult<CopyStats> {
     let mut total_stats = CopyStats::default();
     let start_time = Instant::now();
 
@@ -352,12 +441,14 @@ fn copy_sources(
             // Copying into a directory - use source filename
             let filename = src
                 .file_name()
-                .with_context(|| format!("Source has no filename: {}", src.display()))?;
+                .ok_or_else(|| CliError::SourceHasNoFilename { path: src.clone() })?;
 
             // Create destination directory if it doesn't exist (for multi-source)
             if !dest_created {
-                std::fs::create_dir_all(dest)
-                    .with_context(|| format!("Failed to create directory: {}", dest.display()))?;
+                std::fs::create_dir_all(dest).map_err(|source| CliError::CreateDirectory {
+                    path: dest.clone(),
+                    source,
+                })?;
                 dest_created = true;
             }
 
@@ -367,12 +458,18 @@ fn copy_sources(
         };
 
         if is_dir {
-            let stats = copy_dir(src, &actual_dest, options)
-                .with_context(|| format!("Failed to copy directory: {}", src.display()))?;
+            let stats =
+                copy_dir(src, &actual_dest, options).map_err(|source| CliError::CopyDirectory {
+                    path: src.clone(),
+                    source,
+                })?;
             total_stats = merge_stats(total_stats, stats);
         } else {
-            let copied = copy_file(src, &actual_dest, options)
-                .with_context(|| format!("Failed to copy file: {}", src.display()))?;
+            let copied =
+                copy_file(src, &actual_dest, options).map_err(|source| CliError::CopyFile {
+                    path: src.clone(),
+                    source,
+                })?;
 
             if copied {
                 total_stats.files_copied += 1;

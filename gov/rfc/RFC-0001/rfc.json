@@ -2,10 +2,11 @@
   "rfc_id": "RFC-0001",
   "title": "pcp Modern API and CLI: Profiles, Plans, and Events",
   "version": "0.1.0",
-  "status": "draft",
-  "phase": "spec",
+  "status": "normative",
+  "phase": "impl",
   "owners": ["@lucifer1004"],
   "created": "2026-02-24",
+  "updated": "2026-02-24",
   "sections": [
     {
       "title": "Summary",

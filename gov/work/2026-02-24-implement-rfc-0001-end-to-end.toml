@@ -1,0 +1,66 @@
+[govctl]
+schema = 1
+id = "WI-2026-02-24-006"
+title = "Implement RFC-0001 end-to-end"
+status = "active"
+created = "2026-02-24"
+started = "2026-02-24"
+refs = ["RFC-0001"]
+
+[content]
+description = """
+Umbrella implementation work item for RFC-0001.
+
+Goal:
+Deliver the full RFC-0001 implementation across CLI, library API, error model, compatibility documentation, and verification pipeline.
+
+Scope:
+- End-to-end implementation of clauses C-PROFILES, C-PLAN-OUTPUT, C-LIBRARY-API, C-COMPATIBILITY, and C-ERROR-MODEL.
+- Keep SSOT contracts and generated docs synchronized.
+- Maintain green validation gates (fmt/check/clippy/tests/govctl check).
+"""
+notes = ["RFC-0001 is now normative/impl; this WI tracks full clause-by-clause implementation."]
+
+[[content.journal]]
+date = "2026-02-24"
+content = """
+2026-02-24
+- Advanced RFC-0001 to status=normative and phase=impl.
+- Re-rendered RFC artifacts and verified governance consistency with `govctl check`."""
+
+[[content.journal]]
+date = "2026-02-24"
+content = """
+2026-02-24
+- Implemented baseline C-ERROR-MODEL work: stable `ErrorCode` taxonomy, typed CLI error enum, and SSOT-generated error-code reference sync checks.
+- Validated baseline with fmt/check/clippy/tests."""
+
+[[content.acceptance_criteria]]
+text = "Implement RFC-0001 C-PROFILES with built-in modern/safe/fast profiles and effective_config surfacing"
+status = "pending"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Implement RFC-0001 C-PLAN-OUTPUT with --plan and stable human/json/jsonl schema contracts"
+status = "pending"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Implement RFC-0001 C-LIBRARY-API with plan/execute APIs, policy/runtime separation, and typed events"
+status = "pending"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Implement RFC-0001 C-ERROR-MODEL with stable error_code mapping and typed enum errors across public APIs"
+status = "pending"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Implement RFC-0001 C-COMPATIBILITY requirements in docs and release migration notes"
+status = "pending"
+category = "added"
+
+[[content.acceptance_criteria]]
+text = "Keep docs/render/tests/clippy/govctl check passing for all RFC-0001 implementation milestones"
+status = "pending"
+category = "chore"
