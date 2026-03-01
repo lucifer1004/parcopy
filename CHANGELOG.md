@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-03-01
+
+### Fixed
+
+- Exclude unncessary files from published crates
+- Update deps to avoid locking to yanked upstream crates
+
 ## [0.3.1] - 2026-03-01
 
 ### Added

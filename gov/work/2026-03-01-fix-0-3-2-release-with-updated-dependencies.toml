@@ -2,14 +2,15 @@
 schema = 1
 id = "WI-2026-03-01-002"
 title = "Fix 0.3.2 release with updated dependencies"
-status = "active"
+status = "done"
 created = "2026-03-01"
 started = "2026-03-01"
+completed = "2026-03-01"
 
 [content]
 description = "Fix 0.3.2 release - update Cargo.lock to resolve yanked dependencies issue from 0.3.1"
 
 [[content.acceptance_criteria]]
 text = "Version bumped to 0.3.2 and dependencies updated"
-status = "pending"
+status = "done"
 category = "chore"
