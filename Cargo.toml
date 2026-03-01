@@ -12,7 +12,7 @@ repository = "https://github.com/lucifer1004/parcopy"
 [workspace.dependencies]
 # Internal crates
 # NOTE: Keep version in sync with [workspace.package].version above
-parcopy = { version = "0.3.0", path = "." }
+parcopy = { version = "0.3", path = "." }
 
 # Shared dependencies
 clap = { version = "4", features = ["derive"] }
@@ -34,6 +34,7 @@ repository = "https://github.com/lucifer1004/parcopy"
 keywords = ["copy", "parallel", "atomic", "filesystem", "nfs"]
 categories = ["filesystem", "concurrency"]
 readme = "README.md"
+include = ["src/**", "LICENSE-MIT", "LICENSE-APACHE", "README.md"]
 
 [dependencies]
 # Core dependencies (always required)

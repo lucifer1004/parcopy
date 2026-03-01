@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Fast parallel file copy command (pcp)"
 keywords = ["copy", "parallel", "cli", "cp"]
 categories = ["command-line-utilities", "filesystem"]
+include = ["src/**"]
 
 [[bin]]
 name = "pcp"
@@ -25,7 +26,7 @@ serde_json = "1"
 assert_cmd = "2"
 libc = "0.2"
 predicates = "3"
-rstest = "0.21"
+rstest = "0.26"
 tempfile = "3"
 serial_test = "3"
 scopeguard = "1"
