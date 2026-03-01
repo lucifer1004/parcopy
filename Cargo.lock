@@ -558,7 +558,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "parcopy"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "filetime",
  "indicatif",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "parcopy-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "assert_cmd",
  "clap",
