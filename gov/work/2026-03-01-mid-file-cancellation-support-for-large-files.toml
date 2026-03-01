@@ -2,26 +2,25 @@
 schema = 1
 id = "WI-2026-03-01-001"
 title = "Mid-file cancellation support for large files"
-status = "active"
+status = "done"
 created = "2026-03-01"
 started = "2026-03-01"
+completed = "2026-03-01"
 
 [content]
-description = """
-Describe the work to be done.
-What is the goal? What are the acceptance criteria?"""
+description = "Add mid-file cancellation support so large files can be interrupted promptly during copy, rather than waiting until the entire file completes."
 
 [[content.acceptance_criteria]]
 text = "Mid-file cancellation works on Linux (copy_file_range)"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "Mid-file cancellation works on non-Linux platforms"
-status = "pending"
+status = "done"
 category = "added"
 
 [[content.acceptance_criteria]]
 text = "All tests pass"
-status = "pending"
+status = "done"
 category = "chore"

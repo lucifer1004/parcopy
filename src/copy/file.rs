@@ -74,6 +74,16 @@ pub(crate) fn copy_file_internal(
     dst: &Path,
     options: &CopyOptions,
 ) -> Result<FileCopyResult> {
+    // Early cancellation check before any file operations
+    if options.is_cancelled() {
+        return Err(Error::Cancelled {
+            files_copied: 0,
+            bytes_copied: 0,
+            files_skipped: 0,
+            dirs_created: 0,
+        });
+    }
+
     // Get source metadata early - single stat call for all checks
     let src_meta = fs::metadata(src)?;
 
@@ -190,7 +200,22 @@ pub(crate) fn copy_file_internal(
     };
 
     // Copy file contents using best available method (zero-copy on Linux)
-    let bytes_copied = copy_file_contents(&src_file, temp_file.as_file(), file_len)?;
+    // Pass cancel token to allow mid-file cancellation
+    let cancel_check = options.cancel_token.as_deref();
+    let bytes_copied = copy_file_contents(&src_file, temp_file.as_file(), file_len, cancel_check)
+        .map_err(|e| {
+        if e.kind() == io::ErrorKind::Interrupted {
+            // Mid-file cancellation - return Cancelled error with partial progress
+            Error::Cancelled {
+                files_copied: 0,
+                bytes_copied: 0,
+                files_skipped: 0,
+                dirs_created: 0,
+            }
+        } else {
+            Error::Io(e)
+        }
+    })?;
 
     // Ensure data is on disk before rename
     if options.fsync {
@@ -830,5 +855,50 @@ mod tests {
         assert!(dst_file.exists());
         let content = fs::read_to_string(&dst_file).unwrap();
         assert_eq!(content, "exceeds max path");
+    }
+
+    #[test]
+    fn test_copy_file_cancelled_before_copy() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("test.txt");
+        let dst_file = dst_dir.path().join("test.txt");
+
+        // Create a file with some content
+        fs::write(&src_file, "content").unwrap();
+
+        // Create an already-cancelled token
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let options = CopyOptions::default().with_cancel_token(cancel);
+
+        let result = copy_file(&src_file, &dst_file, &options);
+
+        // Should return Cancelled error
+        assert!(matches!(result, Err(Error::Cancelled { .. })));
+
+        // Destination should not exist (atomic temp file cleaned up)
+        assert!(!dst_file.exists());
+    }
+
+    #[test]
+    fn test_copy_file_no_cancel_normal_completion() {
+        let src_dir = tempdir().unwrap();
+        let dst_dir = tempdir().unwrap();
+
+        let src_file = src_dir.path().join("test.txt");
+        let dst_file = dst_dir.path().join("test.txt");
+
+        fs::write(&src_file, "content").unwrap();
+
+        // Create a non-cancelled token
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let options = CopyOptions::default().with_cancel_token(cancel);
+
+        let result = copy_file(&src_file, &dst_file, &options);
+
+        // Should complete normally
+        assert!(result.is_ok());
+        assert!(dst_file.exists());
     }
 }

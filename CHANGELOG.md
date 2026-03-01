@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-01
+
+### Added
+
+- Mid-file cancellation works on Linux (copy_file_range) (WI-2026-03-01-001)
+- Mid-file cancellation works on non-Linux platforms (WI-2026-03-01-001)
+
 ## [0.3.0] - 2026-02-25
 
 ### Added

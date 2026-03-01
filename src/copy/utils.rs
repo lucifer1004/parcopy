@@ -8,6 +8,7 @@ use filetime::{FileTime, set_file_times};
 use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // =============================================================================
 // File content copying
@@ -16,21 +17,25 @@ use std::path::Path;
 /// Efficiently copy file contents using the best available method.
 ///
 /// On Linux 4.5+, uses `copy_file_range` for zero-copy kernel-to-kernel transfer.
-/// Falls back to `std::io::copy` on other platforms or on error.
+/// Falls back to chunked `io::copy` on other platforms or on error.
+///
+/// # Cancellation
+///
+/// If `cancel_check` is provided, the operation checks for cancellation between
+/// chunks (128MB boundaries). If cancelled, returns `io::ErrorKind::Interrupted`.
 pub(crate) fn copy_file_contents(
     src: &std::fs::File,
     dst: &std::fs::File,
     len: u64,
+    cancel_check: Option<&AtomicBool>,
 ) -> io::Result<u64> {
     #[cfg(target_os = "linux")]
     {
-        copy_file_range_all(src, dst, len)
+        copy_file_range_all(src, dst, len, cancel_check)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        use std::io::BufReader;
-        let _ = len; // unused on non-Linux
-        io::copy(&mut BufReader::new(src), &mut &*dst)
+        copy_file_contents_chunked(src, dst, len, cancel_check)
     }
 }
 
@@ -39,7 +44,12 @@ pub(crate) fn copy_file_contents(
 /// This is a zero-copy operation - data never enters userspace.
 /// Falls back to io::copy if copy_file_range fails (e.g., cross-filesystem).
 #[cfg(target_os = "linux")]
-fn copy_file_range_all(src: &std::fs::File, dst: &std::fs::File, len: u64) -> io::Result<u64> {
+fn copy_file_range_all(
+    src: &std::fs::File,
+    dst: &std::fs::File,
+    len: u64,
+    cancel_check: Option<&AtomicBool>,
+) -> io::Result<u64> {
     use std::os::unix::io::AsRawFd;
 
     let src_fd = src.as_raw_fd();
@@ -48,6 +58,13 @@ fn copy_file_range_all(src: &std::fs::File, dst: &std::fs::File, len: u64) -> io
     let mut copied: u64 = 0;
 
     while remaining > 0 {
+        // Check for cancellation between chunks
+        if let Some(cancel) = cancel_check {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+            }
+        }
+
         // copy_file_range can copy up to 2GB at a time, but we use smaller chunks
         // to allow progress reporting and avoid holding kernel resources too long
         let chunk_size = remaining.min(128 * 1024 * 1024) as usize; // 128MB chunks
@@ -77,8 +94,7 @@ fn copy_file_range_all(src: &std::fs::File, dst: &std::fs::File, len: u64) -> io
                         | Some(libc::EOPNOTSUPP)
                 )
             {
-                use std::io::BufReader;
-                return io::copy(&mut BufReader::new(src), &mut &*dst);
+                return copy_file_contents_chunked(src, dst, len, cancel_check);
             }
             return Err(err);
         }
@@ -91,6 +107,44 @@ fn copy_file_range_all(src: &std::fs::File, dst: &std::fs::File, len: u64) -> io
         let bytes_copied = result as u64;
         copied += bytes_copied;
         remaining = remaining.saturating_sub(bytes_copied);
+    }
+
+    Ok(copied)
+}
+
+/// Chunked file copy for non-Linux platforms and fallback.
+///
+/// Copies file in 128MB chunks, checking for cancellation between chunks.
+fn copy_file_contents_chunked(
+    src: &std::fs::File,
+    dst: &std::fs::File,
+    len: u64,
+    cancel_check: Option<&AtomicBool>,
+) -> io::Result<u64> {
+    use std::io::{BufReader, Read};
+
+    const CHUNK_SIZE: u64 = 128 * 1024 * 1024; // 128MB
+    let mut reader = BufReader::new(src);
+    let mut remaining = len;
+    let mut copied: u64 = 0;
+
+    while remaining > 0 {
+        // Check for cancellation between chunks
+        if let Some(cancel) = cancel_check {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+            }
+        }
+
+        let to_copy = remaining.min(CHUNK_SIZE);
+        let n = io::copy(&mut reader.by_ref().take(to_copy), &mut &*dst)?;
+        copied += n;
+        remaining = remaining.saturating_sub(n);
+
+        // Handle early EOF (file truncated during copy)
+        if n < to_copy {
+            break;
+        }
     }
 
     Ok(copied)
